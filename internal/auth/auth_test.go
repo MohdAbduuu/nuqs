@@ -439,6 +439,9 @@ func TestAuthEdgeCasesAndBranches(t *testing.T) {
 	if w.Code != http.StatusFound || w.Header().Get("Location") != "/login" {
 		t.Errorf("GET /setup after setup = %d %q", w.Code, w.Header().Get("Location"))
 	}
+	if w.Header().Get("Content-Security-Policy") == "" || w.Header().Get("X-Content-Type-Options") != "nosniff" || w.Header().Get("X-Frame-Options") != "DENY" {
+		t.Errorf("Gate redirect missing security headers: %v", w.Header())
+	}
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "http://127.0.0.1:9002/users", nil))
 	if w.Code != http.StatusUnauthorized {

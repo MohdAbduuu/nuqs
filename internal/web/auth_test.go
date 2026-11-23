@@ -469,8 +469,11 @@ func TestWebAuthMoreEdgeCases(t *testing.T) {
 	if w := getWithCookies(h, "/login?notice=signed-out&next=/scans", nil); w.Code != http.StatusOK {
 		t.Errorf("login with notice = %d", w.Code)
 	}
-	if w := getWithCookies(h, "/users?notice=role-updated", adminCookies); w.Code != http.StatusOK {
-		t.Errorf("users with notice = %d", w.Code)
+	if w := getWithCookies(h, "/users?notice=role-updated", adminCookies); w.Code != http.StatusOK || strings.Count(w.Body.String(), "Role updated.") != 1 {
+		t.Errorf("users with notice = %d, role-updated count = %d", w.Code, strings.Count(w.Body.String(), "Role updated."))
+	}
+	if w := getWithCookies(h, "/users?notice=user-removed", adminCookies); w.Code != http.StatusOK || strings.Count(w.Body.String(), "Account removed.") != 1 {
+		t.Errorf("users with removed notice = %d, user-removed count = %d", w.Code, strings.Count(w.Body.String(), "Account removed."))
 	}
 	if w := getWithCookies(h, "/scans?notice=password-updated", adminCookies); w.Code != http.StatusOK {
 		t.Errorf("scans with notice = %d", w.Code)

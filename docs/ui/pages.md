@@ -87,7 +87,7 @@ Two scans side by side: **new**, **fixed** and **still open**, each as its own l
 | Schedules and alerts | W10 | Run scans daily or weekly, send email or webhook alerts |
 | Windows credentials | W11 | WinRM logins, with the same **Test** button |
 | Workers | W12 | Scan workers on other networks, online or offline |
-| Users | W12 | Admins, scanners and viewers, and the audit log |
+| Audit log | W12 | Audit log of sign-ins, role changes and scans |
 
 ## The look
 

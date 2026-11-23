@@ -114,6 +114,7 @@ func (s *Service) Gate(next http.Handler) http.Handler {
 
 		needed, err := s.NeedsSetup()
 		if err != nil {
+			setGateSecurityHeaders(w)
 			http.Error(w, "Auth store error.", http.StatusInternalServerError)
 			return
 		}
@@ -122,6 +123,7 @@ func (s *Service) Gate(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
+			setGateSecurityHeaders(w)
 			if isAPIPath(path) {
 				http.Error(w, "Initial setup required. Open /setup in your browser.", http.StatusUnauthorized)
 				return
@@ -132,6 +134,7 @@ func (s *Service) Gate(next http.Handler) http.Handler {
 
 		// Setup is complete: permanently close /setup.
 		if path == "/setup" {
+			setGateSecurityHeaders(w)
 			if r.Method == http.MethodGet || r.Method == http.MethodHead {
 				http.Redirect(w, r, "/login", http.StatusFound)
 				return
@@ -143,12 +146,14 @@ func (s *Service) Gate(next http.Handler) http.Handler {
 		// Resolve session if present.
 		principal, ok, err := s.ResolveSession(SessionToken(r))
 		if err != nil {
+			setGateSecurityHeaders(w)
 			http.Error(w, "Auth store error.", http.StatusInternalServerError)
 			return
 		}
 		if ok {
 			r = r.WithContext(WithPrincipal(r.Context(), principal))
 			if path == "/login" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+				setGateSecurityHeaders(w)
 				http.Redirect(w, r, "/scans", http.StatusFound)
 				return
 			}
@@ -161,6 +166,7 @@ func (s *Service) Gate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		setGateSecurityHeaders(w)
 		if isAPIPath(path) {
 			http.Error(w, "Authentication required.", http.StatusUnauthorized)
 			return
@@ -175,6 +181,13 @@ func (s *Service) Gate(next http.Handler) http.Handler {
 		}
 		http.Error(w, "Authentication required.", http.StatusUnauthorized)
 	})
+}
+
+func setGateSecurityHeaders(w http.ResponseWriter) {
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Referrer-Policy", "same-origin")
 }
 
 // RequireRole rejects requests whose authenticated principal does not hold one

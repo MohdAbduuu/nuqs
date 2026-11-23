@@ -247,6 +247,7 @@ dialog::backdrop {background:#00000066}
 
 /* Admin user management page. */
 .codeBanner {border-left:3px solid var(--ok)}
+.codeBanner code {overflow-wrap:anywhere}
 .codeRow {display:flex;flex-wrap:wrap;align-items:center;gap:10px}
 .codeValue {display:inline-flex;align-items:center;min-height:32px;font:600 13px/1.2 var(--mono);padding:0 12px;border-radius:7px;background:var(--field);border:.5px solid var(--line);letter-spacing:.04em;user-select:all;overflow-wrap:anywhere}
 .codeRow button {height:32px}

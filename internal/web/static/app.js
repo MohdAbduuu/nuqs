@@ -77,6 +77,14 @@ if (accountButton && accountDialog) {
   accountDialog.onclick = event => {
     if (event.target === accountDialog) accountDialog.close();
   };
+  accountDialog.addEventListener("close", () => {
+    byId("accountError")?.remove();
+    const url = new URL(location.href);
+    if (url.searchParams.has("account_error")) {
+      url.searchParams.delete("account_error");
+      history.replaceState(null, "", url.pathname + url.search + url.hash);
+    }
+  });
 }
 
 // Instant client-side check that password confirmation fields match (server still verifies).

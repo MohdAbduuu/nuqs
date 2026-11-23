@@ -19,6 +19,7 @@ import (
 )
 
 type authPageData struct {
+	Version  string
 	Title    string
 	Heading  string
 	Subtitle string
@@ -84,6 +85,7 @@ func (h *Handler) renderAuth(w http.ResponseWriter, r *http.Request, status int,
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
+	data.Version = h.version
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "auth_layout", data); err != nil {
 		http.Error(w, "template error", http.StatusInternalServerError)
@@ -372,7 +374,7 @@ func (h *Handler) usersGet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	h.renderUsers(w, r, http.StatusOK, actor, nil, noticeText(r.URL.Query().Get("notice")), "")
+	h.renderUsers(w, r, http.StatusOK, actor, nil, "", "")
 }
 
 func (h *Handler) usersCreatePost(w http.ResponseWriter, r *http.Request) {
