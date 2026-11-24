@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -156,25 +157,38 @@ func TestShowRunWithoutReport(t *testing.T) {
 }
 
 func TestServeShowsScansSavedByTheCLI(t *testing.T) {
-	app, _, errOut := newApp(t, &fakeRunner{})
+	app, out, errOut := newApp(t, &fakeRunner{})
+	app.PBKDF2Iterations = 1000
 	if code := app.Run(context.Background(), []string{"scan", "10.0.0.1"}); code != ExitOK {
 		t.Fatal(code)
 	}
+	out.Reset()
 	app.LookPath = func(file string) (string, error) { return "/usr/bin/" + file, nil }
-	var handler http.Handler
-	app.ListenAndServe = func(_ context.Context, _ string, h http.Handler) error {
-		handler = h
+	app.ListenAndServe = func(_ context.Context, _ string, handler http.Handler) error {
+		setupCode := extractIndentedCode(t, out.String())
+		form := url.Values{"code": {setupCode}, "username": {"admin"}, "password": {"admin-password-1"}, "confirm": {"admin-password-1"}}
+		setupReq := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:9124/setup", strings.NewReader(form.Encode()))
+		setupReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		setupReq.Header.Set("Origin", "http://127.0.0.1:9124")
+		setupRec := httptest.NewRecorder()
+		handler.ServeHTTP(setupRec, setupReq)
+		cookies := resultCookies(setupRec)
+		if setupRec.Code != http.StatusSeeOther || len(cookies) == 0 {
+			t.Fatalf("POST /setup: %d %s", setupRec.Code, setupRec.Body.String())
+		}
+		for path, want := range map[string]string{"/scans": "10.0.0.1", "/scans/1": "Command line scan", "/api/scans/1": `"status":"completed"`} {
+			req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:9124"+path, nil)
+			req.AddCookie(cookies[0])
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
+				t.Errorf("GET %s: %d, missing %q", path, rec.Code, want)
+			}
+		}
 		return nil
 	}
 	if code := app.Run(context.Background(), []string{"serve", "--addr", "127.0.0.1:9124"}); code != ExitOK {
 		t.Fatalf("serve exit %d:\n%s", code, errOut)
-	}
-	for path, want := range map[string]string{"/scans": "10.0.0.1", "/scans/1": "Command line scan", "/api/scans/1": `"status":"completed"`} {
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:9124"+path, nil))
-		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
-			t.Errorf("GET %s: %d, missing %q", path, rec.Code, want)
-		}
 	}
 }
 

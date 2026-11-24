@@ -7,6 +7,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -220,14 +222,19 @@ func TestReopenKeepsDataAndSkipsDoneMigrations(t *testing.T) {
 	if got, err := s.Run(r.ID); err != nil || got.Name != "kept" {
 		t.Errorf("after reopening: %+v, %v", got, err)
 	}
-	if info, err := os.Stat(filepath.Join(dir, "nuqs.db")); err != nil || info.Mode().Perm() != 0o600 {
-		t.Errorf("database file mode: %v, %v", info, err)
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(filepath.Join(dir, "nuqs.db")); err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("database file mode: %v, %v", info, err)
+		}
 	}
 }
 
 func TestOddFolderNames(t *testing.T) {
 	// "?", "#" and "%" mean something in a SQLite URI, spaces are normal on macOS.
 	for _, name := range []string{"Application Support", "we#ird", "q?mark", "100% sure", "a%3Fb"} {
+		if runtime.GOOS == "windows" && strings.Contains(name, "?") {
+			continue
+		}
 		dir := filepath.Join(t.TempDir(), name)
 		s, err := Open(dir)
 		if err != nil {
@@ -254,6 +261,9 @@ func TestOddFolderNames(t *testing.T) {
 }
 
 func TestDatabaseFilesArePrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not use POSIX file permission bits")
+	}
 	s, dir := open(t)
 	r := Run{Name: "x", Kind: "cli", Targets: []string{"x"}, Status: Completed, Started: at, Report: sampleReport()}
 	if err := s.Save(&r); err != nil {

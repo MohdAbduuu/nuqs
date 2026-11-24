@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/nuqs-org/nuqs/internal/api"
+	"github.com/nuqs-org/nuqs/internal/auth"
 	"github.com/nuqs-org/nuqs/internal/check"
 	"github.com/nuqs-org/nuqs/internal/engine"
 	"github.com/nuqs-org/nuqs/internal/model"
@@ -53,7 +54,9 @@ type App struct {
 	LookPath func(file string) (string, error)
 	// ListenAndServe starts the HTTP server for "nuqs serve". Nil defaults to net/http.
 	ListenAndServe func(ctx context.Context, addr string, h http.Handler) error
-	// DataDir is where scans are saved. Empty means store.DefaultDir().
+	// PBKDF2Iterations overrides the default password hashing cost (0 uses auth.DefaultPBKDF2Iterations).
+	PBKDF2Iterations int
+	// DataDir is where scans and accounts are saved. Empty means store.DefaultDir().
 	DataDir string
 	// LiveProgress shows scan progress as one line that updates in place.
 	// Set it when Stderr is a terminal. Otherwise progress is a few plain
@@ -64,15 +67,16 @@ type App struct {
 const usage = `Nuqs is a non-overengineered vulnerability assessment tool.
 
 Usage:
-  nuqs scan [flags] <target>...   scan targets (IP, CIDR, range like 10.0.0.1-20, or hostname)
-  nuqs history [-n 20]            list saved scans, newest first
-  nuqs show [--json] <id>         print a saved scan again
-  nuqs serve [flags]              start the local web UI and JSON API server
-  nuqs checks                     list the built-in checks
-  nuqs version                    print the version
+  nuqs scan [flags] <target>...        scan targets (IP, CIDR, range like 10.0.0.1-20, or hostname)
+  nuqs history [-n 20]                 list saved scans, newest first
+  nuqs show [--json] <id>              print a saved scan again
+  nuqs serve [flags]                   start the web UI and JSON API server
+  nuqs user reset-password <username>  issue a one-time password reset code
+  nuqs checks                          list the built-in checks
+  nuqs version                         print the version
 
-Scans are saved in NUQS_DATA_DIR, or a "nuqs" folder in your config folder.
-Run "nuqs scan -h" or "nuqs serve -h" to see the flags.
+Scans and accounts are saved in NUQS_DATA_DIR, or a "nuqs" folder in your config folder.
+Run "nuqs scan -h", "nuqs serve -h" or "nuqs user -h" to see the flags.
 `
 
 // Run runs the command in args (without the program name) and returns the exit code.
@@ -84,12 +88,14 @@ func (a *App) Run(ctx context.Context, args []string) int {
 	switch args[0] {
 	case "scan":
 		return a.scan(ctx, args[1:])
-	case "serve":
-		return a.serve(ctx, args[1:])
 	case "history":
 		return a.history(args[1:])
 	case "show":
 		return a.show(args[1:])
+	case "serve":
+		return a.serve(ctx, args[1:])
+	case "user":
+		return a.user(args[1:])
 	case "checks":
 		return a.listChecks()
 	case "version", "--version", "-v":
@@ -362,6 +368,7 @@ func (a *App) serve(ctx context.Context, args []string) int {
 	addr := fs.String("addr", defaultAddr, "local address to listen on")
 	nmapPath := fs.String("nmap", os.Getenv("NUQS_NMAP_PATH"), "path to the nmap binary (default: NUQS_NMAP_PATH or nmap from PATH)")
 	allowRaw := fs.String("allow", os.Getenv("NUQS_ALLOWED_TARGETS"), "comma-separated allowed IPs or CIDRs (default: 127.0.0.0/8 loopback only)")
+	dataDir := fs.String("data", a.dataDir(), "directory for nuqs.db (default: NUQS_DATA_DIR or user config dir)")
 	fs.Usage = func() {
 		fmt.Fprintln(a.Stderr, "Usage: nuqs serve [flags]")
 		fs.PrintDefaults()
@@ -403,6 +410,22 @@ func (a *App) serve(ctx context.Context, args []string) int {
 		return ExitError
 	}
 
+	st, err := store.Open(*dataDir)
+	if err != nil {
+		fmt.Fprintf(a.Stderr, "error: %v\n", err)
+		return ExitError
+	}
+	defer func() { _ = st.Close() }()
+
+	authSvc := auth.NewService(st, auth.Options{
+		Iterations: a.PBKDF2Iterations,
+	})
+	setupCode, needsSetup, err := authSvc.EnsureSetupCode()
+	if err != nil {
+		fmt.Fprintf(a.Stderr, "error: %v\n", err)
+		return ExitError
+	}
+
 	svc := &tools.Service{
 		Version:      a.Version,
 		RunnerName:   "nmap",
@@ -413,12 +436,6 @@ func (a *App) serve(ctx context.Context, args []string) int {
 		MaxWorkers:   128,
 		StartedAt:    time.Now(),
 	}
-	st, err := store.Open(a.dataDir())
-	if err != nil {
-		fmt.Fprintln(a.Stderr, "error:", err)
-		return ExitError
-	}
-	defer func() { _ = st.Close() }()
 	scans := &tools.Scans{Service: svc, Store: st}
 	if err := scans.Load(); err != nil {
 		fmt.Fprintln(a.Stderr, "error: loading saved scans:", err)
@@ -434,39 +451,53 @@ func (a *App) serve(ctx context.Context, args []string) int {
 		fmt.Fprintf(a.Stderr, "error: %v\n", err)
 		return ExitError
 	}
+	webHandler.Auth = authSvc
+
 	apiHandler := api.New(svc, *addr)
 	apiHandler.Scans = scans
+	apiHandler.Auth = authSvc
 
 	mux := http.NewServeMux()
 	apiHandler.Register(mux)
 	webHandler.Register(mux)
 
+	handler := api.LocalOnly(*addr, authSvc.Gate(mux))
+
 	fmt.Fprintf(a.Stdout, "Nuqs web UI at http://%s\n", *addr)
+	if needsSetup {
+		fmt.Fprintf(a.Stdout, "\nFirst-time setup required (no accounts exist yet).\nOpen http://%s/setup and enter this one-time setup code:\n  %s\n\n", *addr, setupCode)
+	}
+
 	listen := a.ListenAndServe
 	if listen == nil {
 		listen = defaultListenAndServe
 	}
-	if err := listen(ctx, *addr, api.LocalOnly(*addr, mux)); err != nil {
+	if err := listen(ctx, *addr, handler); err != nil {
 		fmt.Fprintf(a.Stderr, "error: server terminated: %v\n", err)
 		return ExitError
 	}
 	return ExitOK
 }
 
-// checkLoopback makes sure the web UI only listens on this computer. There's
-// no login yet, so anyone who could reach it could run scans.
+// checkLoopback makes sure an address only listens on this computer.
 func checkLoopback(addr string) error {
 	host, port, err := net.SplitHostPort(addr)
 	if err == nil {
-		_, err = strconv.ParseUint(port, 10, 16)
+		p, perr := strconv.ParseUint(port, 10, 16)
+		if perr != nil || p == 0 {
+			err = errors.New("invalid port")
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("--addr %q should look like 127.0.0.1:9002", addr)
 	}
-	if ip, perr := netip.ParseAddr(host); host != "localhost" && (perr != nil || !ip.IsLoopback()) {
-		return fmt.Errorf("--addr %q: the web UI only listens on this computer for now (127.0.0.1 or localhost), because it has no login yet", addr)
+	if host == "localhost" {
+		return nil
 	}
-	return nil
+	if ip, err := netip.ParseAddr(host); err == nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("--addr %q: plain HTTP only listens on this computer (127.0.0.1 or localhost)", addr)
 }
 
 func defaultListenAndServe(ctx context.Context, addr string, h http.Handler) error {

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/nuqs-org/nuqs/internal/auth"
 	"github.com/nuqs-org/nuqs/internal/output"
 	"github.com/nuqs-org/nuqs/internal/tools"
 )
@@ -79,9 +80,18 @@ func (h *Handler) listScans(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) startScan(w http.ResponseWriter, r *http.Request) {
-	if !IsLocalOrigin(r, h.Addr) {
-		http.Error(w, "Open the scan page on the local server.", http.StatusForbidden)
+	if !h.sameOrigin(r) {
+		http.Error(w, "Open the scan page on this server.", http.StatusForbidden)
 		return
+	}
+	var startedBy string
+	if h.Auth != nil {
+		p, ok := auth.PrincipalFromContext(r.Context())
+		if !ok {
+			http.Error(w, auth.ErrUnauthorized.Error(), http.StatusUnauthorized)
+			return
+		}
+		startedBy = p.Username
 	}
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
@@ -95,6 +105,7 @@ func (h *Handler) startScan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid scan settings.", http.StatusBadRequest)
 		return
 	}
+	in.StartedBy = startedBy
 	s, err := h.Scans.Start(in)
 	var ve *tools.ValidationError
 	switch {
@@ -156,9 +167,15 @@ func (h *Handler) downloadReport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) stopScan(w http.ResponseWriter, r *http.Request) {
-	if !IsLocalOrigin(r, h.Addr) {
-		http.Error(w, "Open the scan page on the local server.", http.StatusForbidden)
+	if !h.sameOrigin(r) {
+		http.Error(w, "Open the scan page on this server.", http.StatusForbidden)
 		return
+	}
+	if h.Auth != nil {
+		if _, ok := auth.PrincipalFromContext(r.Context()); !ok {
+			http.Error(w, auth.ErrUnauthorized.Error(), http.StatusUnauthorized)
+			return
+		}
 	}
 	if err := h.Scans.Stop(r.PathValue("id")); err != nil {
 		http.Error(w, "No scan with that ID.", http.StatusNotFound)

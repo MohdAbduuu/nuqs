@@ -43,6 +43,9 @@ type NewScan struct {
 	Description string      `json:"description"`
 	Kind        string      `json:"kind"` // quick, full or custom
 	Settings    ScanRequest `json:"settings"`
+	// StartedBy records the authenticated username that launched the scan.
+	// Ignored in JSON so API clients cannot spoof another user.
+	StartedBy string `json:"-"`
 }
 
 // Scan is one scan and everything we know about it so far. Values handed
@@ -52,6 +55,7 @@ type Scan struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
 	Kind        string         `json:"kind"`
+	StartedBy   string         `json:"started_by,omitempty"`
 	Settings    ScanRequest    `json:"settings"`
 	Targets     []string       `json:"targets"`
 	Status      ScanStatus     `json:"status"`
@@ -162,6 +166,7 @@ func (m *Scans) Start(in NewScan) (Scan, error) {
 			Name:        name,
 			Description: strings.TrimSpace(in.Description),
 			Kind:        in.Kind,
+			StartedBy:   strings.TrimSpace(in.StartedBy),
 			Settings:    in.Settings,
 			Targets:     valid.Targets,
 			Status:      ScanRunning,
@@ -187,7 +192,8 @@ func (m *Scans) newID(name string, in NewScan, valid ValidatedScan, started time
 	}
 	settings, _ := json.Marshal(in.Settings) // plain strings and numbers, can't fail
 	r := store.Run{Name: name, Description: strings.TrimSpace(in.Description), Kind: in.Kind,
-		Settings: string(settings), Targets: valid.Targets, Status: store.Running, Started: started}
+		StartedBy: strings.TrimSpace(in.StartedBy),
+		Settings:  string(settings), Targets: valid.Targets, Status: store.Running, Started: started}
 	if err := m.Store.Create(&r); err != nil {
 		return "", fmt.Errorf("couldn't save the scan: %w", err)
 	}
@@ -340,6 +346,7 @@ func fromRun(r store.Run) Scan {
 		Name:        r.Name,
 		Description: r.Description,
 		Kind:        r.Kind,
+		StartedBy:   r.StartedBy,
 		Targets:     r.Targets,
 		Status:      ScanStatus(r.Status),
 		Started:     r.Started,

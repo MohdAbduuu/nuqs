@@ -1,6 +1,7 @@
-// Package store saves scans in a SQLite database, so they're still there
-// after Nuqs stops. It keeps every run with its hosts, services, findings
-// and check errors, and gives them back exactly as they were saved.
+// Package store saves scans, accounts, sessions and recovery codes in a
+// SQLite database, so they're still there after Nuqs stops. It keeps every run
+// with its hosts, services, findings and check errors, and gives them back
+// exactly as they were saved.
 //
 // One file holds everything, nuqs.db in the data folder. The schema grows
 // through numbered migrations in migrations.go, and the database remembers
@@ -39,6 +40,7 @@ type Run struct {
 	Name        string
 	Description string
 	Kind        string // quick, full, custom, or cli for "nuqs scan"
+	StartedBy   string // authenticated username that launched the scan, if any
 	Settings    string // the scan settings as JSON, the store doesn't look inside
 	Targets     []string
 	Status      string
@@ -50,20 +52,22 @@ type Run struct {
 
 // Summary is a run without its report, plus counts, for history lists.
 type Summary struct {
-	ID       int64
-	Name     string
-	Kind     string
-	Targets  []string
-	Status   string
-	Started  time.Time
-	Finished time.Time
-	Hosts    int
-	Findings [5]int // how many findings at each severity, indexed by model.Severity
+	ID        int64
+	Name      string
+	Kind      string
+	StartedBy string
+	Targets   []string
+	Status    string
+	Started   time.Time
+	Finished  time.Time
+	Hosts     int
+	Findings  [5]int // how many findings at each severity, indexed by model.Severity
 }
 
 // Store is an open database. It's safe to use from many goroutines.
 type Store struct {
-	db *sql.DB
+	dir string
+	db  *sql.DB
 }
 
 // DefaultDir is where Nuqs keeps its data: NUQS_DATA_DIR if set, otherwise
@@ -108,13 +112,16 @@ func Open(dir string) (*Store, error) {
 	// One connection: SQLite writes one at a time anyway, and this way the
 	// pragmas above always apply and writes never trip over each other.
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
+	s := &Store{dir: dir, db: db}
 	if err := s.migrateWhenFree(); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	return s, nil
 }
+
+// Dir returns the data directory holding nuqs.db.
+func (s *Store) Dir() string { return s.dir }
 
 var uriEscaper = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
 
@@ -201,9 +208,9 @@ func insertRun(db execer, r *Run) error {
 	if err != nil {
 		return err
 	}
-	res, err := db.Exec(`INSERT INTO runs (name, description, kind, settings, targets, status, error, started)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.Name, r.Description, r.Kind, orEmpty(r.Settings, "{}"), string(targets), orEmpty(r.Status, Running), r.Error, unix(r.Started))
+	res, err := db.Exec(`INSERT INTO runs (name, description, kind, started_by, settings, targets, status, error, started)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Name, r.Description, r.Kind, r.StartedBy, orEmpty(r.Settings, "{}"), string(targets), orEmpty(r.Status, Running), r.Error, unix(r.Started))
 	if err != nil {
 		return fmt.Errorf("save scan: %w", err)
 	}
@@ -270,7 +277,7 @@ func (s *Store) Runs(limit int) ([]Summary, error) {
 	if limit <= 0 {
 		limit = -1 // SQLite's "no limit"
 	}
-	rows, err := s.db.Query(`SELECT r.id, r.name, r.kind, r.targets, r.status, r.started, r.finished,
+	rows, err := s.db.Query(`SELECT r.id, r.name, r.kind, r.started_by, r.targets, r.status, r.started, r.finished,
 			(SELECT count(*) FROM hosts h WHERE h.run_id = r.id),
 			coalesce(f.info, 0), coalesce(f.low, 0), coalesce(f.medium, 0), coalesce(f.high, 0), coalesce(f.critical, 0)
 		FROM runs r LEFT JOIN (
@@ -289,7 +296,7 @@ func (s *Store) Runs(limit int) ([]Summary, error) {
 		var targets string
 		var started, finished int64
 		c := &sum.Findings
-		if err := rows.Scan(&sum.ID, &sum.Name, &sum.Kind, &targets, &sum.Status, &started, &finished,
+		if err := rows.Scan(&sum.ID, &sum.Name, &sum.Kind, &sum.StartedBy, &targets, &sum.Status, &started, &finished,
 			&sum.Hosts, &c[model.Info], &c[model.Low], &c[model.Medium], &c[model.High], &c[model.Critical]); err != nil {
 			return nil, fmt.Errorf("list saved scans: %w", err)
 		}
@@ -308,9 +315,9 @@ func (s *Store) Run(id int64) (Run, error) {
 	var targets string
 	var started, finished, repStarted, repFinished int64
 	var hasReport bool
-	err := s.db.QueryRow(`SELECT name, description, kind, settings, targets, status, error, started, finished,
+	err := s.db.QueryRow(`SELECT name, description, kind, started_by, settings, targets, status, error, started, finished,
 			has_report, report_started, report_finished FROM runs WHERE id = ?`, id).
-		Scan(&r.Name, &r.Description, &r.Kind, &r.Settings, &targets, &r.Status, &r.Error, &started, &finished,
+		Scan(&r.Name, &r.Description, &r.Kind, &r.StartedBy, &r.Settings, &targets, &r.Status, &r.Error, &started, &finished,
 			&hasReport, &repStarted, &repFinished)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Run{}, ErrNotFound

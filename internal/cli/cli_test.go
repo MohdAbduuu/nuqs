@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -234,39 +235,54 @@ func TestServeCommand(t *testing.T) {
 	t.Run("serves web UI and JSON API on one mux", func(t *testing.T) {
 		r := &fakeRunner{}
 		app, out, errOut := newApp(t, r)
+		app.PBKDF2Iterations = 1000
 		app.LookPath = func(file string) (string, error) { return "/usr/bin/" + file, nil }
 
 		var servedAddr string
-		var servedHandler http.Handler
-		app.ListenAndServe = func(_ context.Context, addr string, h http.Handler) error {
+		app.ListenAndServe = func(_ context.Context, addr string, servedHandler http.Handler) error {
 			servedAddr = addr
-			servedHandler = h
+
+			// Complete first-run setup using the printed terminal code.
+			setupCode := extractIndentedCode(t, out.String())
+			form := url.Values{"code": {setupCode}, "username": {"admin"}, "password": {"admin-password-1"}, "confirm": {"admin-password-1"}}
+			setupReq := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:9123/setup", strings.NewReader(form.Encode()))
+			setupReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			setupReq.Header.Set("Origin", "http://127.0.0.1:9123")
+			setupRec := httptest.NewRecorder()
+			servedHandler.ServeHTTP(setupRec, setupReq)
+			setupCookies := resultCookies(setupRec)
+			if setupRec.Code != http.StatusSeeOther || len(setupCookies) == 0 {
+				t.Fatalf("POST /setup: %d %s", setupRec.Code, setupRec.Body.String())
+			}
+			sessionCookie := setupCookies[0]
+
+			for _, path := range []string{"/scans", "/scans/new", "/checks", "/users", "/api/status", "/api/checks", "/api/scans", "/api/users", "/partials/checks", "/static/nuqs.css", "/static/htmx.min.js"} {
+				req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:9123"+path, nil)
+				req.AddCookie(sessionCookie)
+				rec := httptest.NewRecorder()
+				servedHandler.ServeHTTP(rec, req)
+				if rec.Code != http.StatusOK {
+					t.Errorf("GET %s: got %d, want 200", path, rec.Code)
+				}
+			}
+
+			// Another site's name pointed at 127.0.0.1 is refused.
+			req := httptest.NewRequest(http.MethodGet, "http://evil.example:9123/scans", nil)
+			rec := httptest.NewRecorder()
+			servedHandler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("foreign Host: got %d, want 403", rec.Code)
+			}
 			return nil
 		}
 
-		code := app.Run(context.Background(), []string{"serve", "--addr", "127.0.0.1:9123", "--allow", "127.0.0.0/8"})
+		dataDir := t.TempDir()
+		code := app.Run(context.Background(), []string{"serve", "--addr", "127.0.0.1:9123", "--allow", "127.0.0.0/8", "--data", dataDir})
 		if code != ExitOK {
 			t.Fatalf("exit %d, stderr:\n%s", code, errOut)
 		}
 		if servedAddr != "127.0.0.1:9123" || !strings.Contains(out.String(), "http://127.0.0.1:9123") {
 			t.Fatalf("addr=%q stdout=%q", servedAddr, out.String())
-		}
-
-		for _, path := range []string{"/scans", "/scans/new", "/checks", "/api/status", "/api/checks", "/api/scans", "/partials/checks", "/static/nuqs.css", "/static/htmx.min.js"} {
-			req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:9123"+path, nil)
-			rec := httptest.NewRecorder()
-			servedHandler.ServeHTTP(rec, req)
-			if rec.Code != http.StatusOK {
-				t.Errorf("GET %s: got %d, want 200", path, rec.Code)
-			}
-		}
-
-		// Another site's name pointed at 127.0.0.1 is refused.
-		req := httptest.NewRequest(http.MethodGet, "http://evil.example:9123/scans", nil)
-		rec := httptest.NewRecorder()
-		servedHandler.ServeHTTP(rec, req)
-		if rec.Code != http.StatusForbidden {
-			t.Errorf("foreign Host: got %d, want 403", rec.Code)
 		}
 	})
 
@@ -300,7 +316,7 @@ func TestServeCommand(t *testing.T) {
 		app2, _, errOut2 := newApp(t, &fakeRunner{})
 		app2.LookPath = func(file string) (string, error) { return file, nil }
 		app2.ListenAndServe = func(context.Context, string, http.Handler) error { return errors.New("port busy") }
-		if code := app2.Run(context.Background(), []string{"serve"}); code != ExitError || !strings.Contains(errOut2.String(), "port busy") {
+		if code := app2.Run(context.Background(), []string{"serve", "--data", t.TempDir()}); code != ExitError || !strings.Contains(errOut2.String(), "port busy") {
 			t.Fatalf("listen error: code=%d stderr=%s", code, errOut2)
 		}
 	})

@@ -1,0 +1,20 @@
+<!-- First-run admin account setup gated by the one-time terminal code. -->
+{{define "auth_content"}}
+<form method="POST" action="/setup" class="authForm">
+  <label class="field">One-time setup code
+    <input name="code" class="mono" value="{{.Code}}" required autocomplete="one-time-code" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" autofocus>
+    <small>Printed in the terminal when <code>nuqs serve</code> started. Stops working once this account is created.</small>
+  </label>
+  <label class="field">Admin username
+    <input name="username" value="{{.Username}}" required minlength="2" maxlength="32" autocomplete="username" spellcheck="false" placeholder="admin">
+  </label>
+  <label class="field">Password
+    <input name="password" type="password" required minlength="10" maxlength="128" autocomplete="new-password">
+    <small>At least 10 characters.</small>
+  </label>
+  <label class="field">Confirm password
+    <input name="confirm" type="password" required minlength="10" maxlength="128" autocomplete="new-password">
+  </label>
+  <button type="submit" class="primary authSubmit">Create admin account</button>
+</form>
+{{end}}

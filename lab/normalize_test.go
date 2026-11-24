@@ -15,6 +15,7 @@ func TestNormalizePreservesReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
 	// Use the reviewed report with a different run interval as input.
 	input := strings.NewReplacer(
 		"2000-01-01T00:00:00Z", "2026-11-20T08:00:00Z",
@@ -41,6 +42,7 @@ func TestNormalizeDropsTelnetName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
 	// The same report as a run where Nmap named BusyBox.
 	input := strings.NewReplacer(
 		`"name": "telnet"`, `"name": "telnet", "product": "BusyBox telnetd", "version": "1.14.0 or later"`,

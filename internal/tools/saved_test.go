@@ -30,7 +30,7 @@ func TestScansAreSavedAndComeBackAfterARestart(t *testing.T) {
 	if err := m.Load(); err != nil {
 		t.Fatal(err)
 	}
-	s, err := m.Start(NewScan{Name: "Lab", Description: "telnet box", Kind: "full", Settings: ScanRequest{Target: "127.0.0.1", Ports: "23"}})
+	s, err := m.Start(NewScan{Name: "Lab", Description: "telnet box", Kind: "full", StartedBy: "alice", Settings: ScanRequest{Target: "127.0.0.1", Ports: "23"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestScansAreSavedAndComeBackAfterARestart(t *testing.T) {
 		t.Fatalf("after restart: %+v", list)
 	}
 	got := list[0]
-	if got.ID != "1" || got.Name != "Lab" || got.Description != "telnet box" || got.Kind != "full" ||
+	if got.ID != "1" || got.Name != "Lab" || got.Description != "telnet box" || got.Kind != "full" || got.StartedBy != "alice" ||
 		got.Settings.Ports != "23" || got.Status != ScanCompleted || got.Percent != 100 || got.HostsFound != 1 ||
 		len(got.Report.Findings) != 1 || !got.Finished.Equal(done.Finished) {
 		t.Errorf("after restart: %+v", got)

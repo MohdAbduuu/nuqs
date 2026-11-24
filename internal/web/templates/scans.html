@@ -13,7 +13,7 @@
         <td>{{.KindName}}</td>
         <td><span class="statusPill {{.Class}}"{{if eq .Status "running"}} id="statusLabel"{{end}}>{{.Label}}</span></td>
         <td>{{if eq .Status "running"}}<span class="none">—</span>{{else}}{{template "counts" .Counts}}{{end}}</td>
-        <td class="mono">{{clock .Started}}</td>
+        <td class="mono">{{clock .Started}}{{if .StartedBy}}<small>by {{.StartedBy}}</small>{{end}}</td>
       </tr>{{end}}
       </tbody>
     </table>

@@ -16,76 +16,125 @@ try { localStorage.removeItem("nuqs:last-report:v1"); } catch { /* storage unava
 // Light and dark follow the system until the user picks one.
 const systemLight = matchMedia("(prefers-color-scheme: light)");
 let themeChoice = read("nuqs:theme");
+const themeToggle = byId("themeToggle");
 function applyTheme() {
   const light = themeChoice === "light" || (themeChoice !== "dark" && systemLight.matches);
   document.documentElement.classList.toggle("light", light);
-  const label = light ? "Switch to dark mode" : "Switch to light mode";
-  byId("themeToggle").title = label;
-  byId("themeToggle").setAttribute("aria-label", label);
-  byId("themeToggle").setAttribute("aria-pressed", String(!light));
+  if (themeToggle) {
+    const label = light ? "Switch to dark mode" : "Switch to light mode";
+    themeToggle.title = label;
+    themeToggle.setAttribute("aria-label", label);
+    themeToggle.setAttribute("aria-pressed", String(!light));
+  }
 }
 applyTheme();
 systemLight.addEventListener("change", applyTheme);
-byId("themeToggle").onclick = () => {
-  themeChoice = document.documentElement.classList.contains("light") ? "dark" : "light";
-  save("nuqs:theme", themeChoice);
-  applyTheme();
-};
+if (themeToggle) {
+  themeToggle.onclick = () => {
+    themeChoice = document.documentElement.classList.contains("light") ? "dark" : "light";
+    save("nuqs:theme", themeChoice);
+    applyTheme();
+  };
+}
 
 // The sidebar can fold down to icons.
-function setCompact(compact) {
-  document.documentElement.classList.toggle("compactRail", compact);
-  byId("railToggle").setAttribute("aria-expanded", String(!compact));
-  byId("railToggle").setAttribute("aria-label", compact ? "Expand sidebar" : "Collapse sidebar");
-}
-setCompact(read("nuqs:compact") === true);
-byId("railToggle").onclick = () => {
-  const compact = !document.documentElement.classList.contains("compactRail");
-  setCompact(compact);
-  save("nuqs:compact", compact);
-};
-
-// Local display name, kept in this browser.
-function showProfile(value) {
-  const name = typeof value === "string" && value.trim() ? value.trim().slice(0, 40) : "Local user";
-  byId("profileName").textContent = name;
-  byId("initials").textContent = name.split(/\s+/u).slice(0, 2).map(word => Array.from(word)[0]).join("").toLocaleUpperCase();
-}
-showProfile(read("nuqs:display-name"));
-byId("profileButton").onclick = () => {
-  byId("displayName").value = byId("profileName").textContent;
-  byId("profileDialog").showModal();
-};
-byId("cancelProfile").onclick = () => byId("profileDialog").close();
-byId("profileForm").onsubmit = event => {
-  event.preventDefault();
-  const name = byId("displayName").value.trim();
-  if (name && save("nuqs:display-name", name)) {
-    showProfile(name);
-    byId("profileDialog").close();
+const railToggle = byId("railToggle");
+if (railToggle) {
+  function setCompact(compact) {
+    document.documentElement.classList.toggle("compactRail", compact);
+    railToggle.setAttribute("aria-expanded", String(!compact));
+    railToggle.setAttribute("aria-label", compact ? "Expand sidebar" : "Collapse sidebar");
   }
-};
+  setCompact(read("nuqs:compact") === true);
+  railToggle.onclick = () => {
+    const compact = !document.documentElement.classList.contains("compactRail");
+    setCompact(compact);
+    save("nuqs:compact", compact);
+  };
+}
 
-// Engine status in the sidebar.
-fetch("/api/status").then(r => {
-  if (!r.ok) throw new Error();
-  byId("connection").textContent = "Engine online";
-  byId("connection").classList.add("ready");
-}).catch(() => { byId("connection").textContent = "Engine offline"; });
+// Authenticated account dialog (change password and sign out).
+const accountButton = byId("accountButton");
+const accountDialog = byId("accountDialog");
+if (accountButton && accountDialog) {
+  accountButton.onclick = () => {
+    const pwForm = byId("passwordForm");
+    if (pwForm) {
+      pwForm.reset();
+      pwForm.elements.confirm_password.setCustomValidity("");
+    }
+    accountDialog.showModal();
+  };
+  if (byId("accountError")) {
+    accountDialog.showModal();
+    const errorCode = new URLSearchParams(location.search).get("account_error");
+    const field = errorCode === "mismatch" ? "confirm_password" :
+      errorCode === "invalid-password" ? "new_password" : "current_password";
+    byId("passwordForm").elements[field].focus();
+  }
+  const cancelAccount = byId("cancelAccount");
+  if (cancelAccount) cancelAccount.onclick = () => accountDialog.close();
+  accountDialog.onclick = event => {
+    if (event.target === accountDialog) accountDialog.close();
+  };
+}
+
+// Instant client-side check that password confirmation fields match (server still verifies).
+for (const [passName, confirmName] of [["password", "confirm"], ["new_password", "confirm_password"]]) {
+  const pass = document.querySelector(`input[name="${passName}"]`);
+  const conf = document.querySelector(`input[name="${confirmName}"]`);
+  if (pass && conf) {
+    const sync = () => conf.setCustomValidity(conf.value && pass.value !== conf.value ? "Passwords do not match." : "");
+    pass.addEventListener("input", sync);
+    conf.addEventListener("input", sync);
+  }
+}
+
+// Confirm destructive or session-revoking user management forms.
+document.addEventListener("submit", event => {
+  const msg = event.target.dataset?.confirm;
+  if (msg && !confirm(msg)) event.preventDefault();
+});
+
+// Engine status in the sidebar (only when inside the authenticated workspace).
+const connection = byId("connection");
+if (connection) {
+  connection.title = "Checking engine…";
+  fetch("/api/status").then(r => {
+    if (r.status === 401) { location.href = "/login"; return; }
+    if (!r.ok) throw new Error();
+    connection.textContent = "Engine online";
+    connection.title = "Engine online";
+    connection.classList.add("ready");
+  }).catch(() => {
+    connection.textContent = "Engine offline";
+    connection.title = "Engine offline";
+  });
+}
 
 // Clicking anywhere on a table row opens its link.
 document.addEventListener("click", event => {
   const row = event.target.closest("tr.rowLink");
-  if (row && !event.target.closest("a,button")) row.querySelector("a")?.click();
+  if (row && !event.target.closest("a,button,select,input,form")) row.querySelector("a")?.click();
 });
 
-// Copy fix buttons.
+// Copy fix, one-time code and reset link buttons.
 document.addEventListener("click", async event => {
-  const button = event.target.closest(".copy");
+  const button = event.target.closest(".copy,.copyCode,.copyLink");
   if (!button) return;
-  try { await navigator.clipboard.writeText(button.dataset.fix || ""); button.textContent = "Copied"; }
+  let resetLabel = button.dataset.copyLabel || "Copy fix";
+  let payload = button.dataset.fix || "";
+  if (button.classList.contains("copyCode")) {
+    resetLabel = "Copy code";
+    payload = button.dataset.copy || "";
+  } else if (button.classList.contains("copyLink")) {
+    resetLabel = "Copy reset link";
+    payload = location.origin + (button.dataset.copyPath || "");
+  }
+  try { await navigator.clipboard.writeText(payload); button.textContent = "Copied"; }
   catch { button.textContent = "Couldn't copy"; }
-  setTimeout(() => { button.textContent = button.dataset.copyLabel || "Copy fix"; }, 2000);
+  clearTimeout(Number(button.dataset.timer || 0));
+  button.dataset.timer = String(setTimeout(() => { button.textContent = resetLabel; }, 2000));
 });
 
 // startScan asks the server to start a scan and opens its page.
@@ -95,6 +144,7 @@ async function startScan(body) {
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify(body)
   });
+  if (response.status === 401) { location.href = "/login"; return; }
   if (!response.ok) throw new Error((await response.text()).trim() || "The scan couldn't start.");
   location.href = response.headers.get("Location") || "/scans";
 }
@@ -328,6 +378,7 @@ if (stop) {
     stop.textContent = "Stopping…";
     try {
       const response = await fetch("/api/scans/" + encodeURIComponent(stop.dataset.id) + "/stop", {method: "POST"});
+      if (response.status === 401) { location.href = "/login"; return; }
       if (!response.ok) throw new Error();
     } catch {
       stop.disabled = false;

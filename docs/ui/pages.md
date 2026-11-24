@@ -8,9 +8,16 @@ Wireframes for each page are made in W1 and saved in `docs/ui/wireframes/`.
 
 ## For FYP-I (by 5 Dec)
 
-### Login (W2)
+### Setup, Login & Password Reset (W2)
 
-Paste the token that `nuqs serve` prints on first start. Remembered in a cookie after that.
+- **First-run setup (`/setup`):** enter the one-time setup code printed in the terminal when `nuqs serve` starts with no accounts, then choose the first admin username and password. Once claimed, the code stops working permanently.
+- **Sign in (`/login`):** username and password with rate limiting and persisted server-side sessions (`HttpOnly`, `SameSite=Strict`, `Secure` on HTTPS).
+- **Set or reset password (`/reset-password`):** enter a username and a one-time reset code issued by an admin on `/users` or via `nuqs user reset-password <name>` on the server.
+
+### Users (Admin only)
+
+- Add teammates with a role (`admin` or `user`) and receive a one-time code so they choose their own password
+- Change roles, issue password reset codes (revoking existing sessions) and remove accounts (with self-delete protection and a requirement that at least one admin who can sign in remains)
 
 ### Scans (W2)
 

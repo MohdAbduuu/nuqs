@@ -1,0 +1,77 @@
+<!-- Admin-only team management: add teammates, change roles, issue password reset codes and remove accounts. -->
+{{define "content"}}{{with .Data}}
+<section class="page">
+  <div class="pageHead">
+    <h1>Users</h1>
+    <p>Manage team accounts and roles. Admins manage users and scans, and users run and view scans.</p>
+  </div>
+
+  {{if .Issued}}
+  <div class="card codeBanner" role="status">
+    <h2>One-time password code for <span class="mono">{{.Issued.Username}}</span></h2>
+    <p class="small subtle">Shown once. Expires at {{clock .Issued.ExpiresAt}} server time. Share this code with <strong>{{.Issued.Username}}</strong> so they can set their password at <code>/reset-password?user={{.Issued.Username}}</code>.</p>
+    <div class="codeRow">
+      <code class="codeValue">{{.Issued.Code}}</code>
+      <button type="button" class="copyCode" data-copy="{{.Issued.Code}}">Copy code</button>
+      <button type="button" class="copyLink" data-copy-path="/reset-password?user={{.Issued.Username}}">Copy reset link</button>
+    </div>
+  </div>
+  {{end}}
+  {{if .Notice}}<p class="noticeCard" role="status">{{.Notice}}</p>{{end}}
+  {{if .Error}}<p class="formError" role="alert">{{.Error}}</p>{{end}}
+
+  <div class="card">
+    <h2>Add teammate</h2>
+    <p class="small subtle">Creates an account and generates a one-time code so the teammate picks their own password.</p>
+    <form method="POST" action="/users" class="addUserForm">
+      <label class="field">Username
+        <input name="username" required minlength="2" maxlength="32" autocomplete="off" spellcheck="false" placeholder="e.g. sara">
+      </label>
+      <label class="field">Role
+        <select name="role">
+          <option value="user" selected>User (run and view scans)</option>
+          <option value="admin">Admin (full access)</option>
+        </select>
+      </label>
+      <button type="submit" class="primary">Add user</button>
+    </form>
+  </div>
+
+  <div class="tableCard">
+    <table class="list usersTable">
+      <thead><tr><th>User</th><th>Role</th><th>Actions</th><th>Created</th></tr></thead>
+      <tbody>
+      {{range .Users}}<tr>
+        <td>
+          <strong>{{.Username}}</strong>{{if .IsSelf}} <span class="subtle small">(you)</span>{{end}}
+          {{if .PendingPassword}}<small><span class="badge medium">pending password</span></small>{{else if .HasResetCode}}<small>Reset code active</small>{{end}}
+        </td>
+        <td>
+          <span class="userMobileLabel">Role</span>
+          <form method="POST" action="/users/{{.ID}}/role" class="inlineForm">
+            <select name="role" aria-label="Role for {{.Username}}"{{if .IsLastAdmin}} disabled{{end}}>
+              <option value="admin"{{if eq .Role "admin"}} selected{{end}}>admin</option>
+              <option value="user"{{if eq .Role "user"}} selected{{end}}>user</option>
+            </select>
+            <button type="submit" aria-label="Save role for {{.Username}}"{{if .IsLastAdmin}} disabled{{end}}>Save</button>
+          </form>
+          {{if .IsLastAdmin}}<small>At least one admin who can sign in must remain.</small>{{end}}
+        </td>
+        <td>
+          <span class="userMobileLabel">Actions</span>
+          <div class="userActions">
+            <form method="POST" action="/users/{{.ID}}/reset" class="inlineForm" data-confirm="Generate a new one-time password reset code for {{.Username}}? Their active sessions will be signed out.">
+              <button type="submit" aria-label="Reset password for {{.Username}}">Reset password</button>
+            </form>
+            <form method="POST" action="/users/{{.ID}}/delete" class="inlineForm" data-confirm="Remove account {{.Username}}? Their active sessions will end immediately.">
+              <button type="submit" class="dangerButton" aria-label="Remove account {{.Username}}"{{if or .IsSelf .IsLastAdmin}} disabled{{end}}>Remove</button>
+            </form>
+          </div>
+        </td>
+        <td class="mono">{{clock .CreatedAt}}</td>
+      </tr>{{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}{{end}}
