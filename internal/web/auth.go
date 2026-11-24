@@ -95,7 +95,7 @@ func (h *Handler) renderAuth(w http.ResponseWriter, r *http.Request, status int,
 }
 
 func (h *Handler) sameOrigin(r *http.Request) bool {
-	return auth.SameOrigin(r, r.TLS != nil)
+	return auth.SameOrigin(r, h.HTTPS || r.TLS != nil)
 }
 
 func parseLimitedForm(w http.ResponseWriter, r *http.Request) bool {

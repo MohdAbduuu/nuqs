@@ -77,6 +77,7 @@ type ResetCodeResult struct {
 // Service coordinates account storage, cryptography, sessions and rate limiting.
 type Service struct {
 	Store         *store.Store
+	HTTPS         bool
 	Iterations    int
 	SessionTTL    time.Duration
 	InviteCodeTTL time.Duration

@@ -25,6 +25,8 @@ type Handler struct {
 	Scans *tools.Scans
 	// Auth enforces authentication, RBAC and serves /api/users when non-nil.
 	Auth *auth.Service
+	// HTTPS reports whether the server is listening over TLS.
+	HTTPS bool
 }
 
 // New constructs an API handler for svc bound to addr.
@@ -52,6 +54,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) sameOrigin(r *http.Request) bool {
+	if h.HTTPS || r.TLS != nil {
+		return auth.SameOrigin(r, true)
+	}
 	return IsLocalOrigin(r, h.Addr)
 }
 

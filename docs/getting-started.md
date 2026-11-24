@@ -103,7 +103,7 @@ Scans are saved in one file, `nuqs.db`, in `~/Library/Application Support/nuqs` 
 Then open http://127.0.0.1:9002. On the first start (when no accounts exist yet), `nuqs serve` prints a one-time setup code in the terminal—enter that code at `/setup` to create the initial **admin** account. After that, sign in normally, pick **New scan**, choose a scan type, enter a target and press **Launch**. Results show by host and by vulnerability, who started each scan, and you can follow a running scan live.
 
 - **Team accounts & roles:** admins can open **Users** in the sidebar to add teammates (`admin` or `user`), change roles and issue one-time password reset codes. If someone is locked out, run `./nuqs user reset-password <username>` on the server machine to print a new one-time code.
-- **Local only:** `nuqs serve` only listens on this computer (`127.0.0.1` / `localhost`).
+- **Listening on the network (HTTPS):** plain HTTP only listens on this computer (`127.0.0.1` / `localhost`). To let teammates connect from their laptops over HTTPS, start with `./nuqs serve --addr 0.0.0.0:9002 --tls-self-signed` (or pass `--tls-cert` and `--tls-key`).
 - **Allowed scan targets:** by default it only scans this computer (`127.0.0.0/8`). To scan your network too, start it with `./nuqs serve --allow 192.168.1.0/24`.
 - One scan runs at a time. Every scan and account is saved in `nuqs.db`, so they're still there after a restart, and the CLI and the web UI share the same history.
 

@@ -3,6 +3,7 @@
 package api
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -161,4 +162,27 @@ func TestAPIRBACAndStartedBy(t *testing.T) {
 	if w := doAuthed(h, http.MethodDelete, base+"/api/users/missing", base, adminTok, ""); w.Code != http.StatusNotFound {
 		t.Errorf("delete missing = %d, want 404", w.Code)
 	}
+}
+
+func TestAPIHTTPSLANOrigin(t *testing.T) {
+	h, _, userTok := newAuthedScansHandler(t)
+	h.HTTPS = true
+	h.Auth.HTTPS = true
+	const base = "https://192.168.1.50:9443"
+
+	req := httptest.NewRequest(http.MethodPost, base+"/api/scans", strings.NewReader(`{"name":"LAN","kind":"full","settings":{"target":"127.0.0.1"}}`))
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("Origin", base)
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: userTok})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("HTTPS LAN scan start = %d %s", w.Code, w.Body.String())
+	}
+	var created ScanSummary
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	waitDone(t, h, created.ID)
 }

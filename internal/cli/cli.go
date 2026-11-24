@@ -11,9 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/netip"
 	"os"
 	"os/exec"
 	"strconv"
@@ -55,6 +53,8 @@ type App struct {
 	LookPath func(file string) (string, error)
 	// ListenAndServe starts the HTTP server for "nuqs serve". Nil defaults to net/http.
 	ListenAndServe func(ctx context.Context, addr string, h http.Handler) error
+	// ListenAndServeTLS starts the HTTPS server for "nuqs serve". Nil defaults to net/http with TLS 1.2+.
+	ListenAndServeTLS func(ctx context.Context, addr, certFile, keyFile string, h http.Handler) error
 	// PBKDF2Iterations overrides the default password hashing cost (0 uses auth.DefaultPBKDF2Iterations).
 	PBKDF2Iterations int
 	// DataDir is where scans and accounts are saved. Empty means store.DefaultDir().
@@ -469,9 +469,12 @@ func (a *App) serve(ctx context.Context, args []string) int {
 	}
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(a.Stderr)
-	addr := fs.String("addr", defaultAddr, "local address to listen on")
+	addr := fs.String("addr", defaultAddr, "address to listen on (non-loopback requires HTTPS)")
 	nmapPath := fs.String("nmap", os.Getenv("NUQS_NMAP_PATH"), "path to the nmap binary (default: NUQS_NMAP_PATH or nmap from PATH)")
 	allowRaw := fs.String("allow", os.Getenv("NUQS_ALLOWED_TARGETS"), "comma-separated allowed IPs or CIDRs (default: 127.0.0.0/8 loopback only)")
+	tlsCert := fs.String("tls-cert", os.Getenv("NUQS_TLS_CERT"), "path to PEM TLS certificate for HTTPS")
+	tlsKey := fs.String("tls-key", os.Getenv("NUQS_TLS_KEY"), "path to PEM TLS private key for HTTPS")
+	tlsSelfSigned := fs.Bool("tls-self-signed", false, "generate and reuse a local self-signed HTTPS certificate in the data folder")
 	fs.Usage = func() {
 		fmt.Fprintln(a.Stderr, "Usage: nuqs serve [flags]")
 		fs.PrintDefaults()
@@ -489,8 +492,25 @@ func (a *App) serve(ctx context.Context, args []string) int {
 		return ExitUsage
 	}
 
-	if err := checkLoopback(*addr); err != nil {
+	certPath := strings.TrimSpace(*tlsCert)
+	keyPath := strings.TrimSpace(*tlsKey)
+	if (certPath == "") != (keyPath == "") {
+		fmt.Fprintln(a.Stderr, "error: --tls-cert and --tls-key must both be provided")
+		return ExitUsage
+	}
+	if *tlsSelfSigned && certPath != "" {
+		fmt.Fprintln(a.Stderr, "error: use either --tls-self-signed or --tls-cert/--tls-key, not both")
+		return ExitUsage
+	}
+	useTLS := *tlsSelfSigned || certPath != ""
+
+	isLoopback, err := CheckServeAddr(*addr)
+	if err != nil {
 		fmt.Fprintln(a.Stderr, "error:", err)
+		return ExitUsage
+	}
+	if !isLoopback && !useTLS {
+		fmt.Fprintf(a.Stderr, "error: --addr %q listens on the network, which requires HTTPS. Pass --tls-self-signed or --tls-cert and --tls-key.\n", *addr)
 		return ExitUsage
 	}
 	allowed, err := tools.ParseAllowedScope(*allowRaw)
@@ -513,14 +533,23 @@ func (a *App) serve(ctx context.Context, args []string) int {
 		return ExitError
 	}
 
-	st, err := store.Open(a.dataDir())
+	dataDir := a.dataDir()
+	st, err := store.Open(dataDir)
 	if err != nil {
 		fmt.Fprintf(a.Stderr, "error: %v\n", err)
 		return ExitError
 	}
 	defer func() { _ = st.Close() }()
+	if *tlsSelfSigned {
+		certPath, keyPath, err = EnsureSelfSignedCert(dataDir, *addr)
+		if err != nil {
+			fmt.Fprintf(a.Stderr, "error: %v\n", err)
+			return ExitError
+		}
+	}
 
 	authSvc := auth.NewService(st)
+	authSvc.HTTPS = useTLS
 	if a.PBKDF2Iterations > 0 {
 		authSvc.Iterations = a.PBKDF2Iterations
 	}
@@ -556,20 +585,45 @@ func (a *App) serve(ctx context.Context, args []string) int {
 		return ExitError
 	}
 	webHandler.Auth = authSvc
+	webHandler.HTTPS = useTLS
 
 	apiHandler := api.New(svc, *addr)
 	apiHandler.Scans = scans
 	apiHandler.Auth = authSvc
+	apiHandler.HTTPS = useTLS
 
 	mux := http.NewServeMux()
 	apiHandler.Register(mux)
 	webHandler.Register(mux)
 
-	handler := api.LocalOnly(*addr, authSvc.Gate(mux))
+	handler := authSvc.Gate(mux)
+	if isLoopback {
+		handler = api.LocalOnly(*addr, handler)
+	}
 
-	fmt.Fprintf(a.Stdout, "Nuqs web UI at http://%s\n", *addr)
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	localURL := LocalAccessURL(*addr, scheme)
+	fmt.Fprintf(a.Stdout, "Nuqs web UI at %s (listening on %s)\n", localURL, *addr)
+	if lanURL := NetworkHintURL(*addr, scheme); lanURL != "" {
+		fmt.Fprintf(a.Stdout, "Team LAN URL:  %s\n", lanURL)
+	}
 	if needsSetup {
-		fmt.Fprintf(a.Stdout, "\nFirst-time setup required (no accounts exist yet).\nOpen http://%s/setup and enter this one-time setup code:\n  %s\n\n", *addr, setupCode)
+		fmt.Fprintf(a.Stdout, "\nFirst-time setup required (no accounts exist yet).\nOpen %s/setup and enter this one-time setup code:\n  %s\n\n", localURL, setupCode)
+	}
+
+	if useTLS {
+		listenTLS := a.ListenAndServeTLS
+		if listenTLS == nil {
+			listenTLS = defaultListenAndServeTLS
+		}
+		if err := listenTLS(ctx, *addr, certPath, keyPath, handler); err != nil {
+			fmt.Fprintf(a.Stderr, "error: server terminated: %v\n", err)
+			return ExitError
+		}
+		return ExitOK
 	}
 
 	listen := a.ListenAndServe
@@ -585,23 +639,14 @@ func (a *App) serve(ctx context.Context, args []string) int {
 
 // checkLoopback makes sure an address only listens on this computer.
 func checkLoopback(addr string) error {
-	host, port, err := net.SplitHostPort(addr)
-	if err == nil {
-		p, perr := strconv.ParseUint(port, 10, 16)
-		if perr != nil || p == 0 {
-			err = errors.New("invalid port")
-		}
-	}
+	loopback, err := CheckServeAddr(addr)
 	if err != nil {
-		return fmt.Errorf("--addr %q should look like 127.0.0.1:9002", addr)
+		return err
 	}
-	if host == "localhost" {
-		return nil
+	if !loopback {
+		return fmt.Errorf("--addr %q: plain HTTP only listens on this computer (127.0.0.1 or localhost); pass HTTPS flags to listen on the network", addr)
 	}
-	if ip, err := netip.ParseAddr(host); err == nil && ip.IsLoopback() {
-		return nil
-	}
-	return fmt.Errorf("--addr %q: plain HTTP only listens on this computer (127.0.0.1 or localhost)", addr)
+	return nil
 }
 
 func defaultListenAndServe(ctx context.Context, addr string, h http.Handler) error {
@@ -610,9 +655,27 @@ func defaultListenAndServe(ctx context.Context, addr string, h http.Handler) err
 		Handler:           h,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	return runHTTPServer(ctx, srv, func() error { return srv.ListenAndServe() })
+}
+
+func defaultListenAndServeTLS(ctx context.Context, addr, certFile, keyFile string, h http.Handler) error {
+	tlsCfg, err := BuildTLSConfig(certFile, keyFile)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		TLSConfig:         tlsCfg,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	return runHTTPServer(ctx, srv, func() error { return srv.ListenAndServeTLS("", "") })
+}
+
+func runHTTPServer(ctx context.Context, srv *http.Server, start func() error) error {
 	errCh := make(chan error, 1)
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 		close(errCh)

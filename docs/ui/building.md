@@ -63,8 +63,8 @@ A vulnerability tool shows text that comes from the machines it scans. A hostile
 - **Everything is escaped.** We use `html/template`, which escapes by default. Never `template.HTML` on anything that came from a scan.
 - **Strict Content-Security-Policy:** scripts only from our own files, no inline scripts. Even if something slips through, it can't run.
 - **Accounts & sessions:** first-run setup is gated by a one-time terminal code so nobody can claim the first admin without host access. Passwords are hashed with Go's standard library `crypto/pbkdf2` (PBKDF2-HMAC-SHA256, 600,000 iterations), auth endpoints are rate-limited, and session tokens are stored hashed with `HttpOnly`, `Secure` (on HTTPS) and `SameSite=Strict` cookies.
-- **Roles:** `admin` and `user` permissions are enforced server-side on every web and API route.
-- **Changes need POST,** and we check the `Origin` header, so other sites can't start scans or modify accounts for you.
+- **Roles & network HTTPS:** `admin` and `user` permissions are enforced server-side on every web and API route. Non-loopback `--addr` bindings require HTTPS (`--tls-cert`/`--tls-key` or `--tls-self-signed`, TLS 1.2+).
+- **Changes need POST,** and we check the `Origin` header (scheme-aware for HTTP and HTTPS), so other sites can't start scans or modify accounts for you.
 - **Allowed targets:** the server refuses to scan anything outside the list in the config, whatever the browser sends.
 
 ## Testing

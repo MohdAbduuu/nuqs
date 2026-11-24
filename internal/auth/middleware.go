@@ -32,7 +32,7 @@ func (s *Service) SetSessionCookie(w http.ResponseWriter, r *http.Request, token
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   s.HTTPS || r.TLS != nil,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(s.SessionTTL.Seconds()),
 	})
@@ -45,7 +45,7 @@ func (s *Service) ClearSessionCookie(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   s.HTTPS || r.TLS != nil,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})
@@ -100,7 +100,7 @@ func SafeNext(raw string) string {
 // and HSTS across both the web UI and JSON API routes.
 func (s *Service) Gate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.TLS != nil {
+		if s.HTTPS || r.TLS != nil {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		}
 		path := r.URL.Path

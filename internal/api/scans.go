@@ -245,7 +245,11 @@ func LocalOnly(addr string, next http.Handler) http.Handler {
 	_, port, _ := net.SplitHostPort(addr)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Host != addr && (port == "" || r.Host != "localhost:"+port) {
-			http.Error(w, "Open Nuqs at http://"+addr, http.StatusForbidden)
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+			http.Error(w, "Open Nuqs at "+scheme+"://"+addr, http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)

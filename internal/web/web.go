@@ -53,6 +53,8 @@ type Handler struct {
 	Addr    string
 	// Auth enables accounts, sessions, RBAC and user management pages when non-nil.
 	Auth *auth.Service
+	// HTTPS reports whether the server is listening over TLS.
+	HTTPS bool
 
 	pages     map[string]*template.Template
 	authPages map[string]*template.Template
@@ -239,7 +241,7 @@ func (h *Handler) writeHTMLStatus(w http.ResponseWriter, r *http.Request, status
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "same-origin")
 	w.Header().Set("Cache-Control", "no-store")
-	if r != nil && r.TLS != nil {
+	if h.HTTPS || (r != nil && r.TLS != nil) {
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 	}
 	if status != http.StatusOK {
