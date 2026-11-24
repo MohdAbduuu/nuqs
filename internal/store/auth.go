@@ -1,4 +1,4 @@
-// SQLite-backed AuthStore persisting accounts, sessions and one-time recovery codes in nuqs.db.
+// SQLite-backed persistence for accounts, sessions and one-time recovery codes in nuqs.db.
 
 package store
 
@@ -36,7 +36,7 @@ const (
 	CodeReset CodePurpose = "reset"
 )
 
-// Sentinel errors returned by AuthStore operations.
+// Sentinel errors returned by account, session and recovery code operations.
 var (
 	ErrExists          = errors.New("already exists")
 	ErrLastAdmin       = errors.New("cannot remove or demote the last admin")
@@ -64,48 +64,10 @@ type Session struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// OneTimeCode is a single-use hashed code for first-run setup or password reset.
-type OneTimeCode struct {
-	CodeHash  string      `json:"code_hash"`
-	Purpose   CodePurpose `json:"purpose"`
-	UserID    string      `json:"user_id,omitempty"`
-	CreatedAt time.Time   `json:"created_at"`
-	ExpiresAt time.Time   `json:"expires_at,omitempty"`
-}
-
-// AuthStore is the persistence contract for accounts, sessions and recovery codes.
-type AuthStore interface {
-	CountUsers() (int, error)
-	ListUsers() ([]User, error)
-	ListUsersWithResetStatus(now time.Time) ([]User, map[string]bool, error)
-	GetUserByID(id string) (User, error)
-	GetUserByUsername(username string) (User, error)
-	CreateUser(user User) (User, error)
-	CreateUserWithResetCode(user User, codeHash string, now, expiresAt time.Time) (User, error)
-	UpdateUserRole(id string, role Role, now time.Time) (User, error)
-	UpdatePassword(id, passwordHash string, now time.Time) error
-	RotatePassword(expectedHash, newHash string, session Session) error
-	DeleteUser(id string) error
-
-	ReplaceSetupCode(codeHash string, now time.Time) error
-	CompleteSetup(codeHash string, admin User, now time.Time) (User, error)
-
-	SaveResetCode(userID, codeHash string, now, expiresAt time.Time) error
-	ConsumeResetCode(username, codeHash, newPasswordHash string, now time.Time) (User, error)
-	HasActiveResetCode(userID string, now time.Time) (bool, error)
-
-	CreateSession(session Session) error
-	GetSession(tokenHash string, now time.Time) (Session, User, error)
-	DeleteSession(tokenHash string) error
-	DeleteUserSessions(userID string) error
-}
-
 // CanonicalUsername normalizes a username for case-insensitive matching.
 func CanonicalUsername(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }
-
-var _ AuthStore = (*Store)(nil)
 
 // CountUsers returns the number of registered accounts.
 func (s *Store) CountUsers() (int, error) {
@@ -114,12 +76,6 @@ func (s *Store) CountUsers() (int, error) {
 		return 0, fmt.Errorf("count users: %w", err)
 	}
 	return n, nil
-}
-
-// ListUsers returns all accounts sorted by creation time, then username.
-func (s *Store) ListUsers() ([]User, error) {
-	users, _, err := s.ListUsersWithResetStatus(time.Time{})
-	return users, err
 }
 
 // ListUsersWithResetStatus returns accounts and their active reset-code flags
@@ -201,23 +157,6 @@ func (s *Store) GetUserByUsername(username string) (User, error) {
 	return u, nil
 }
 
-// CreateUser inserts a new account and enforces case-insensitive username uniqueness.
-func (s *Store) CreateUser(user User) (User, error) {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return User{}, fmt.Errorf("create user: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	created, err := insertUserTx(tx, user)
-	if err != nil {
-		return User{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return User{}, fmt.Errorf("create user: %w", err)
-	}
-	return created, nil
-}
-
 // CreateUserWithResetCode atomically creates a user and stores an initial one-time code.
 func (s *Store) CreateUserWithResetCode(user User, codeHash string, now, expiresAt time.Time) (User, error) {
 	tx, err := s.db.Begin()
@@ -274,18 +213,6 @@ func (s *Store) UpdateUserRole(id string, role Role, now time.Time) (User, error
 		return User{}, fmt.Errorf("update role: %w", err)
 	}
 	return u, nil
-}
-
-// UpdatePassword replaces a user's password hash.
-func (s *Store) UpdatePassword(id, passwordHash string, now time.Time) error {
-	res, err := s.db.Exec(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`, passwordHash, unix(now.UTC()), id)
-	if err != nil {
-		return fmt.Errorf("update password: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
 }
 
 // RotatePassword atomically verifies expectedHash, updates the password hash,
@@ -590,14 +517,6 @@ func (s *Store) GetSession(tokenHash string, now time.Time) (Session, User, erro
 func (s *Store) DeleteSession(tokenHash string) error {
 	if _, err := s.db.Exec(`DELETE FROM sessions WHERE token_hash = ?`, tokenHash); err != nil {
 		return fmt.Errorf("delete session: %w", err)
-	}
-	return nil
-}
-
-// DeleteUserSessions revokes every active session for userID.
-func (s *Store) DeleteUserSessions(userID string) error {
-	if _, err := s.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, userID); err != nil {
-		return fmt.Errorf("delete user sessions: %w", err)
 	}
 	return nil
 }

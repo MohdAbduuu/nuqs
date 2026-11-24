@@ -1,4 +1,4 @@
-// Tests the SQLite AuthStore: setup persistence and races, role guards, reset codes, sessions and StartedBy persistence.
+// Tests SQLite account persistence: setup races, role guards, reset codes, sessions and StartedBy persistence.
 
 package store
 
@@ -10,11 +10,20 @@ import (
 	"time"
 )
 
+func seedAdmin(t *testing.T, st *Store, username, hash string, now time.Time) User {
+	t.Helper()
+	if err := st.ReplaceSetupCode("seed-setup-hash", now); err != nil {
+		t.Fatal(err)
+	}
+	u, err := st.CompleteSetup("seed-setup-hash", User{Username: username, PasswordHash: hash}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u
+}
+
 func TestSetupPersistenceAndRace(t *testing.T) {
 	st, dir := open(t)
-	if st.Dir() != dir {
-		t.Fatalf("Dir() = %q, want %q", st.Dir(), dir)
-	}
 	if n, err := st.CountUsers(); err != nil || n != 0 {
 		t.Fatalf("empty count = %d, %v", n, err)
 	}
@@ -74,11 +83,8 @@ func TestSetupPersistenceAndRace(t *testing.T) {
 func TestUsersRolesAndLastAdminGuard(t *testing.T) {
 	st, _ := open(t)
 	now := time.Now().UTC()
-	admin, err := st.CreateUser(User{Username: "admin", Role: RoleAdmin, PasswordHash: "h1", CreatedAt: now})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.CreateUser(User{Username: "ADMIN", Role: RoleUser, PasswordHash: "h2"}); !errors.Is(err, ErrExists) {
+	admin := seedAdmin(t, st, "admin", "h1", now)
+	if _, err := st.CreateUserWithResetCode(User{Username: "ADMIN", Role: RoleUser}, "dup-hash", now, now.Add(time.Hour)); !errors.Is(err, ErrExists) {
 		t.Fatalf("duplicate username should return ErrExists, got %v", err)
 	}
 	if _, err := st.UpdateUserRole(admin.ID, RoleUser, now); !errors.Is(err, ErrLastAdmin) {
@@ -88,7 +94,7 @@ func TestUsersRolesAndLastAdminGuard(t *testing.T) {
 		t.Fatalf("deleting last admin: %v", err)
 	}
 
-	bob, err := st.CreateUserWithResetCode(User{Username: "bob", Role: RoleUser, CreatedAt: now.Add(time.Second)}, "invite-hash", now, now.Add(time.Hour))
+	bob, err := st.CreateUserWithResetCode(User{Username: "bob", Role: RoleUser, CreatedAt: now.Add(time.Second)}, "invite-hash", now, now.Add(24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,22 +108,28 @@ func TestUsersRolesAndLastAdminGuard(t *testing.T) {
 	if _, err := st.UpdateUserRole(admin.ID, RoleUser, now); !errors.Is(err, ErrLastAdmin) {
 		t.Fatalf("demote with only pending second admin: %v", err)
 	}
-	// Once bob sets a password, admin can be demoted because bob can sign in.
-	if err := st.UpdatePassword(bob.ID, "bob-hash", now); err != nil {
+	// Once bob sets a password via the invite code, admin can be demoted because bob can sign in.
+	if _, err := st.ConsumeResetCode("bob", "invite-hash", "bob-hash", now); err != nil {
 		t.Fatal(err)
 	}
 	if u, err := st.UpdateUserRole(admin.ID, RoleUser, now); err != nil || u.Role != RoleUser {
 		t.Fatalf("demote with second active admin: %+v %v", u, err)
 	}
-	if err := st.UpdatePassword(admin.ID, "new-hash", now); err != nil {
+	// RotatePassword checks expectedHash and swaps sessions atomically.
+	if err := st.CreateSession(Session{TokenHash: "old-tok", UserID: admin.ID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
-	// RotatePassword checks expectedHash and swaps sessions atomically.
 	if err := st.RotatePassword("stale-hash", "rot-hash", Session{TokenHash: "rot-tok", UserID: admin.ID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); !errors.Is(err, ErrPasswordChanged) {
 		t.Fatalf("RotatePassword stale hash = %v, want ErrPasswordChanged", err)
 	}
-	if err := st.RotatePassword("new-hash", "rot-hash", Session{TokenHash: "rot-tok", UserID: admin.ID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
+	if err := st.RotatePassword("h1", "rot-hash", Session{TokenHash: "rot-tok", UserID: admin.ID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
 		t.Fatalf("RotatePassword: %v", err)
+	}
+	if _, _, err := st.GetSession("old-tok", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("RotatePassword should revoke old session, got %v", err)
+	}
+	if err := st.SaveResetCode(bob.ID, "bob-reset", now, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
 	}
 	users, activeResets, err := st.ListUsersWithResetStatus(now)
 	if err != nil || len(users) != 2 || users[0].Username != "admin" || users[1].Username != "bob" || !activeResets[bob.ID] {
@@ -144,10 +156,7 @@ func TestResetCodesAndCrossProcessVisibility(t *testing.T) {
 	t.Cleanup(func() { _ = cliStore.Close() })
 
 	now := time.Now().UTC()
-	u, err := serverStore.CreateUser(User{Username: "alice", Role: RoleAdmin, PasswordHash: "old"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	u := seedAdmin(t, serverStore, "alice", "old", now)
 	if err := serverStore.CreateSession(Session{TokenHash: "sess-1", UserID: u.ID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
@@ -186,10 +195,7 @@ func TestResetCodesAndCrossProcessVisibility(t *testing.T) {
 func TestSessionsAndAuthEdgeCases(t *testing.T) {
 	st, _ := open(t)
 	now := time.Now().UTC()
-	u, err := st.CreateUser(User{Username: "alice", Role: RoleAdmin, PasswordHash: "h"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	u := seedAdmin(t, st, "alice", "h", now)
 	if err := st.CreateSession(Session{TokenHash: "expired", UserID: u.ID, CreatedAt: now.Add(-2 * time.Hour), ExpiresAt: now.Add(-time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
@@ -210,16 +216,6 @@ func TestSessionsAndAuthEdgeCases(t *testing.T) {
 		t.Fatalf("deleted session: %v", err)
 	}
 
-	if err := st.CreateSession(Session{TokenHash: "s1", UserID: u.ID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.DeleteUserSessions(u.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := st.GetSession("s1", now); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("DeleteUserSessions: %v", err)
-	}
-
 	// Missing user queries.
 	if _, err := st.GetUserByID("missing"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("GetUserByID missing: %v", err)
@@ -230,8 +226,8 @@ func TestSessionsAndAuthEdgeCases(t *testing.T) {
 	if _, err := st.UpdateUserRole("missing", RoleUser, now); !errors.Is(err, ErrNotFound) {
 		t.Errorf("UpdateUserRole missing: %v", err)
 	}
-	if err := st.UpdatePassword("missing", "hash", now); !errors.Is(err, ErrNotFound) {
-		t.Errorf("UpdatePassword missing: %v", err)
+	if err := st.RotatePassword("h", "new-h", Session{TokenHash: "t", UserID: "missing", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("RotatePassword missing: %v", err)
 	}
 	if err := st.DeleteUser("missing"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("DeleteUser missing: %v", err)

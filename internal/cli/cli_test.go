@@ -276,8 +276,8 @@ func TestServeCommand(t *testing.T) {
 			return nil
 		}
 
-		dataDir := t.TempDir()
-		code := app.Run(context.Background(), []string{"serve", "--addr", "127.0.0.1:9123", "--allow", "127.0.0.0/8", "--data", dataDir})
+		app.DataDir = t.TempDir()
+		code := app.Run(context.Background(), []string{"serve", "--addr", "127.0.0.1:9123", "--allow", "127.0.0.0/8"})
 		if code != ExitOK {
 			t.Fatalf("exit %d, stderr:\n%s", code, errOut)
 		}
@@ -316,7 +316,7 @@ func TestServeCommand(t *testing.T) {
 		app2, _, errOut2 := newApp(t, &fakeRunner{})
 		app2.LookPath = func(file string) (string, error) { return file, nil }
 		app2.ListenAndServe = func(context.Context, string, http.Handler) error { return errors.New("port busy") }
-		if code := app2.Run(context.Background(), []string{"serve", "--data", t.TempDir()}); code != ExitError || !strings.Contains(errOut2.String(), "port busy") {
+		if code := app2.Run(context.Background(), []string{"serve"}); code != ExitError || !strings.Contains(errOut2.String(), "port busy") {
 			t.Fatalf("listen error: code=%d stderr=%s", code, errOut2)
 		}
 	})

@@ -22,7 +22,8 @@ func newAuthedWeb(t *testing.T) (*Handler, *auth.Service, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	authSvc := auth.NewService(st, auth.Options{Iterations: 1000})
+	authSvc := auth.NewService(st)
+	authSvc.Iterations = 1000
 	code, needed, err := authSvc.EnsureSetupCode()
 	if err != nil || !needed {
 		t.Fatalf("EnsureSetupCode: %v %v", needed, err)

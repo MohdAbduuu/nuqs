@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-
-	"github.com/nuqs-org/nuqs/internal/store"
 )
 
 // SessionCookieName is the HTTP-only cookie carrying the active session token.
@@ -34,7 +32,7 @@ func (s *Service) SetSessionCookie(w http.ResponseWriter, r *http.Request, token
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.HTTPS || r.TLS != nil,
+		Secure:   r.TLS != nil,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(s.SessionTTL.Seconds()),
 	})
@@ -47,7 +45,7 @@ func (s *Service) ClearSessionCookie(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.HTTPS || r.TLS != nil,
+		Secure:   r.TLS != nil,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})
@@ -102,7 +100,7 @@ func SafeNext(raw string) string {
 // and HSTS across both the web UI and JSON API routes.
 func (s *Service) Gate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.HTTPS || r.TLS != nil {
+		if r.TLS != nil {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		}
 		path := r.URL.Path
@@ -188,29 +186,6 @@ func setGateSecurityHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "same-origin")
-}
-
-// RequireRole rejects requests whose authenticated principal does not hold one
-// of the permitted roles.
-func RequireRole(roles ...store.Role) func(http.Handler) http.Handler {
-	allowed := map[store.Role]bool{}
-	for _, r := range roles {
-		allowed[r] = true
-	}
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			p, ok := PrincipalFromContext(r.Context())
-			if !ok {
-				http.Error(w, ErrUnauthorized.Error(), http.StatusUnauthorized)
-				return
-			}
-			if !allowed[p.Role] {
-				http.Error(w, ErrForbidden.Error(), http.StatusForbidden)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
 }
 
 func isAPIPath(path string) bool {

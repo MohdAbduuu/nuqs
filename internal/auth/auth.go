@@ -14,7 +14,9 @@ import (
 const (
 	// DefaultSessionTTL is how long a signed-in browser session remains valid.
 	DefaultSessionTTL = 7 * 24 * time.Hour
-	// DefaultResetCodeTTL is how long a one-time password reset/invite code stays valid.
+	// DefaultInviteCodeTTL is how long a one-time teammate invite code stays valid.
+	DefaultInviteCodeTTL = 24 * time.Hour
+	// DefaultResetCodeTTL is how long a one-time password reset code stays valid.
 	DefaultResetCodeTTL = time.Hour
 	minPasswordLen      = 10
 	maxPasswordLen      = 128
@@ -72,59 +74,30 @@ type ResetCodeResult struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// Options configures a Service. Zero values select production defaults.
-type Options struct {
-	HTTPS        bool
-	Iterations   int
-	SessionTTL   time.Duration
-	ResetCodeTTL time.Duration
-	Now          func() time.Time
-	RateLimiter  *RateLimiter
-}
-
 // Service coordinates account storage, cryptography, sessions and rate limiting.
 type Service struct {
-	Store        store.AuthStore
-	HTTPS        bool
-	Iterations   int
-	SessionTTL   time.Duration
-	ResetCodeTTL time.Duration
-	Now          func() time.Time
-	Limiter      *RateLimiter
+	Store         *store.Store
+	Iterations    int
+	SessionTTL    time.Duration
+	InviteCodeTTL time.Duration
+	ResetCodeTTL  time.Duration
+	Now           func() time.Time
+	Limiter       *RateLimiter
 }
 
-// NewService constructs a Service backed by st.
-func NewService(st store.AuthStore, opts Options) *Service {
-	iter := opts.Iterations
-	if iter <= 0 {
-		iter = DefaultPBKDF2Iterations
+// NewService constructs a Service backed by st with production defaults.
+func NewService(st *store.Store) *Service {
+	s := &Service{
+		Store:         st,
+		Iterations:    DefaultPBKDF2Iterations,
+		SessionTTL:    DefaultSessionTTL,
+		InviteCodeTTL: DefaultInviteCodeTTL,
+		ResetCodeTTL:  DefaultResetCodeTTL,
+		Now:           time.Now,
+		Limiter:       NewRateLimiter(),
 	}
-	sessTTL := opts.SessionTTL
-	if sessTTL <= 0 {
-		sessTTL = DefaultSessionTTL
-	}
-	resetTTL := opts.ResetCodeTTL
-	if resetTTL <= 0 {
-		resetTTL = DefaultResetCodeTTL
-	}
-	nowFn := opts.Now
-	if nowFn == nil {
-		nowFn = time.Now
-	}
-	lim := opts.RateLimiter
-	if lim == nil {
-		lim = NewRateLimiter()
-		lim.Now = nowFn
-	}
-	return &Service{
-		Store:        st,
-		HTTPS:        opts.HTTPS,
-		Iterations:   iter,
-		SessionTTL:   sessTTL,
-		ResetCodeTTL: resetTTL,
-		Now:          nowFn,
-		Limiter:      lim,
-	}
+	s.Limiter.Now = s.now
+	return s
 }
 
 // NeedsSetup reports whether zero accounts exist and first-run setup is required.
@@ -163,7 +136,6 @@ func (s *Service) CompleteSetup(ip, setupCode, username, password string) (store
 		return store.User{}, "", wait, ErrRateLimited
 	}
 	if NormalizeCode(setupCode) == "" {
-		s.Limiter.RecordFailure(ip, "setup")
 		return store.User{}, "", 0, &ValidationError{Message: "Enter the one-time setup code printed in the terminal."}
 	}
 	cleanUser, err := ValidateUsername(username)
@@ -186,9 +158,6 @@ func (s *Service) CompleteSetup(ip, setupCode, username, password string) (store
 		UpdatedAt:    now,
 	}, now)
 	if err != nil {
-		if errors.Is(err, store.ErrInvalidCode) {
-			s.Limiter.RecordFailure(ip, "setup")
-		}
 		return store.User{}, "", 0, err
 	}
 	s.Limiter.RecordSuccess(ip, "setup")
@@ -208,25 +177,21 @@ func (s *Service) Login(ip, username, password string) (store.User, string, time
 	}
 	if canon == "" || password == "" {
 		dummyVerify(password, s.Iterations)
-		s.Limiter.RecordFailure(ip, canon)
 		return store.User{}, "", 0, ErrInvalidCredentials
 	}
 	u, err := s.Store.GetUserByUsername(canon)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			dummyVerify(password, s.Iterations)
-			s.Limiter.RecordFailure(ip, canon)
 			return store.User{}, "", 0, ErrInvalidCredentials
 		}
 		return store.User{}, "", 0, err
 	}
 	if u.PasswordHash == "" {
 		dummyVerify(password, s.Iterations)
-		s.Limiter.RecordFailure(ip, canon)
 		return store.User{}, "", 0, ErrInvalidCredentials
 	}
 	if !VerifyPassword(password, u.PasswordHash) {
-		s.Limiter.RecordFailure(ip, canon)
 		return store.User{}, "", 0, ErrInvalidCredentials
 	}
 	s.Limiter.RecordSuccess(ip, canon)
@@ -296,7 +261,7 @@ func (s *Service) CreateUser(username string, role store.Role) (UserView, ResetC
 		return UserView{}, ResetCodeResult{}, err
 	}
 	now := s.now()
-	exp := now.Add(s.ResetCodeTTL)
+	exp := now.Add(s.InviteCodeTTL)
 	u, err := s.Store.CreateUserWithResetCode(store.User{
 		Username:  cleanUser,
 		Role:      role,
@@ -404,7 +369,6 @@ func (s *Service) CompletePasswordReset(ip, username, code, newPassword string) 
 		return store.User{}, wait, ErrRateLimited
 	}
 	if canon == "" || NormalizeCode(code) == "" {
-		s.Limiter.RecordFailure(ip, canon)
 		return store.User{}, 0, &ValidationError{Message: "Enter both your username and one-time reset code."}
 	}
 	if err := ValidatePassword(newPassword); err != nil {
@@ -416,9 +380,6 @@ func (s *Service) CompletePasswordReset(ip, username, code, newPassword string) 
 	}
 	u, err := s.Store.ConsumeResetCode(canon, HashCode(code), hash, s.now())
 	if err != nil {
-		if errors.Is(err, store.ErrInvalidCode) || errors.Is(err, store.ErrCodeExpired) {
-			s.Limiter.RecordFailure(ip, canon)
-		}
 		return store.User{}, 0, err
 	}
 	s.Limiter.RecordSuccess(ip, canon)

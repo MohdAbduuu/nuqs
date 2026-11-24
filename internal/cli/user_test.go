@@ -15,6 +15,7 @@ func TestServeSetupCodeAndAuthenticatedRoutes(t *testing.T) {
 	dataDir := t.TempDir()
 	r := &fakeRunner{}
 	app, out, errOut := newApp(t, r)
+	app.DataDir = dataDir
 	app.PBKDF2Iterations = 1000
 	app.LookPath = func(file string) (string, error) { return "/usr/bin/" + file, nil }
 
@@ -64,8 +65,9 @@ func TestServeSetupCodeAndAuthenticatedRoutes(t *testing.T) {
 		// Run "nuqs user reset-password" from CLI while the server is still running
 		// and verify it revokes the live server's session via SQLite WAL.
 		cliApp, cliOut, cliErr := newApp(t, r)
+		cliApp.DataDir = dataDir
 		cliApp.PBKDF2Iterations = 1000
-		if code := cliApp.Run(context.Background(), []string{"user", "reset-password", "--data", dataDir, "admin"}); code != ExitOK {
+		if code := cliApp.Run(context.Background(), []string{"user", "reset-password", "admin"}); code != ExitOK {
 			t.Fatalf("user reset-password: %d %s", code, cliErr)
 		}
 		resetCode := extractIndentedCode(t, cliOut.String())
@@ -93,17 +95,18 @@ func TestServeSetupCodeAndAuthenticatedRoutes(t *testing.T) {
 		return nil
 	}
 
-	code := app.Run(context.Background(), []string{"serve", "--addr", "127.0.0.1:9123", "--data", dataDir})
+	code := app.Run(context.Background(), []string{"serve", "--addr", "127.0.0.1:9123"})
 	if code != ExitOK {
 		t.Fatalf("exit %d, stderr:\n%s", code, errOut)
 	}
 
 	// Restarting nuqs serve with existing users must NOT print a setup code.
 	app2, out2, errOut2 := newApp(t, r)
+	app2.DataDir = dataDir
 	app2.PBKDF2Iterations = 1000
 	app2.LookPath = func(file string) (string, error) { return "/usr/bin/" + file, nil }
 	app2.ListenAndServe = func(context.Context, string, http.Handler) error { return nil }
-	if code := app2.Run(context.Background(), []string{"serve", "--addr", "127.0.0.1:9123", "--data", dataDir}); code != ExitOK {
+	if code := app2.Run(context.Background(), []string{"serve", "--addr", "127.0.0.1:9123"}); code != ExitOK {
 		t.Fatalf("restart serve: %d %s", code, errOut2)
 	}
 	if strings.Contains(out2.String(), "setup code") {
@@ -112,7 +115,6 @@ func TestServeSetupCodeAndAuthenticatedRoutes(t *testing.T) {
 }
 
 func TestUserCommandUsageAndErrors(t *testing.T) {
-	dataDir := t.TempDir()
 	for _, c := range []struct {
 		args []string
 		want int
@@ -122,7 +124,8 @@ func TestUserCommandUsageAndErrors(t *testing.T) {
 		{[]string{"user", "bogus"}, ExitUsage},
 		{[]string{"user", "reset-password", "-h"}, ExitOK},
 		{[]string{"user", "reset-password"}, ExitUsage},
-		{[]string{"user", "reset-password", "--data", dataDir, "nobody"}, ExitError},
+		{[]string{"user", "reset-password", "--bad-flag", "bob"}, ExitUsage},
+		{[]string{"user", "reset-password", "nobody"}, ExitError},
 	} {
 		app, _, _ := newApp(t, &fakeRunner{})
 		if got := app.Run(context.Background(), c.args); got != c.want {

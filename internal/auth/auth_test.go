@@ -8,13 +8,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/nuqs-org/nuqs/internal/store"
 )
 
-func newTestService(t *testing.T, https bool) (*Service, *time.Time) {
+func newTestService(t *testing.T) (*Service, *time.Time) {
 	t.Helper()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -22,11 +24,9 @@ func newTestService(t *testing.T, https bool) (*Service, *time.Time) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	clock := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
-	svc := NewService(st, Options{
-		HTTPS:      https,
-		Iterations: 1000, // fast in tests; production default is checked separately
-		Now:        func() time.Time { return clock },
-	})
+	svc := NewService(st)
+	svc.Iterations = 1000 // fast in tests; production default is checked separately
+	svc.Now = func() time.Time { return clock }
 	return svc, &clock
 }
 
@@ -101,7 +101,7 @@ func TestCodesAndValidation(t *testing.T) {
 }
 
 func TestSetupLoginResetAndAccountLifecycle(t *testing.T) {
-	svc, clock := newTestService(t, false)
+	svc, clock := newTestService(t)
 
 	code, needed, err := svc.EnsureSetupCode()
 	if err != nil || !needed || code == "" {
@@ -123,11 +123,16 @@ func TestSetupLoginResetAndAccountLifecycle(t *testing.T) {
 		t.Fatalf("ResolveSession = %+v %v %v", p, ok, err)
 	}
 
-	// Admin creates a teammate with a one-time invite code.
+	// Admin creates a teammate with a 24-hour one-time invite code.
 	bobView, invite, err := svc.CreateUser("bob", store.RoleUser)
 	if err != nil || !bobView.PendingPassword || invite.Code == "" {
 		t.Fatalf("CreateUser: %+v %+v %v", bobView, invite, err)
 	}
+	if gotTTL := invite.ExpiresAt.Sub(*clock); gotTTL != DefaultInviteCodeTTL {
+		t.Fatalf("invite TTL = %v, want %v", gotTTL, DefaultInviteCodeTTL)
+	}
+	// Invite code stays valid past the 1-hour reset window (e.g. 2 hours later).
+	*clock = clock.Add(2 * time.Hour)
 	// Teammate cannot log in before setting a password.
 	if _, _, _, err := svc.Login("10.0.0.2", "bob", ""); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("blank login should fail: %v", err)
@@ -135,9 +140,21 @@ func TestSetupLoginResetAndAccountLifecycle(t *testing.T) {
 	if _, _, _, err := svc.Login("10.0.0.2", "bob", "anything12345"); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("pending-password login should fail: %v", err)
 	}
-	// Teammate sets password with one-time code.
+	// Teammate sets password with one-time invite code.
 	if _, _, err := svc.CompletePasswordReset("10.0.0.2", "bob", invite.Code, "bob-new-password-1"); err != nil {
 		t.Fatalf("CompletePasswordReset: %v", err)
+	}
+	// Invite code expires after 24 hours.
+	carolView, carolInvite, err := svc.CreateUser("carol", store.RoleUser)
+	if err != nil {
+		t.Fatalf("CreateUser carol: %v", err)
+	}
+	*clock = clock.Add(DefaultInviteCodeTTL + time.Minute)
+	if _, _, err := svc.CompletePasswordReset("10.0.0.3", "carol", carolInvite.Code, "too-late-invite-1"); !errors.Is(err, store.ErrCodeExpired) {
+		t.Fatalf("expired invite code: %v", err)
+	}
+	if err := svc.DeleteUser(admin.ID, carolView.ID); err != nil {
+		t.Fatalf("DeleteUser carol: %v", err)
 	}
 	// Code cannot be reused.
 	if _, _, err := svc.CompletePasswordReset("10.0.0.2", "bob", invite.Code, "bob-new-password-2"); !errors.Is(err, store.ErrInvalidCode) {
@@ -200,11 +217,19 @@ func TestSetupLoginResetAndAccountLifecycle(t *testing.T) {
 }
 
 func TestRateLimiting(t *testing.T) {
-	svc, clock := newTestService(t, false)
+	svc, clock := newTestService(t)
 	code, _, _ := svc.EnsureSetupCode()
 	_, _, _, err := svc.CompleteSetup("127.0.0.1", code, "admin", "strong-password-1")
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	// Repeated valid logins from the same IP clear their counted attempt and
+	// never trip the per-IP limit.
+	for i := range defaultMaxPerIP + 5 {
+		if _, _, _, err := svc.Login("192.168.1.8", "admin", "strong-password-1"); err != nil {
+			t.Fatalf("valid login %d failed: %v", i+1, err)
+		}
 	}
 
 	for i := range defaultMaxPerIPUser {
@@ -226,8 +251,49 @@ func TestRateLimiting(t *testing.T) {
 	}
 }
 
+func TestLoginRateLimitParallelRequests(t *testing.T) {
+	svc, _ := newTestService(t)
+	// Use enough iterations that parallel requests overlap while PBKDF2 runs.
+	svc.Iterations = 10_000
+	code, _, err := svc.EnsureSetupCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := svc.CompleteSetup("127.0.0.1", code, "admin", "strong-password-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	const total = 30
+	start := make(chan struct{})
+	var invalid, limited, other atomic.Int32
+	var wg sync.WaitGroup
+	for range total {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, _, wait, err := svc.Login("192.168.1.50", "admin", "wrong-password")
+			switch {
+			case errors.Is(err, ErrInvalidCredentials):
+				invalid.Add(1)
+			case errors.Is(err, ErrRateLimited) && wait > 0:
+				limited.Add(1)
+			default:
+				other.Add(1)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if invalid.Load() != defaultMaxPerIPUser || limited.Load() != total-defaultMaxPerIPUser || other.Load() != 0 {
+		t.Fatalf("parallel wrong logins: invalid=%d limited=%d other=%d, want %d/%d/0",
+			invalid.Load(), limited.Load(), other.Load(), defaultMaxPerIPUser, total-defaultMaxPerIPUser)
+	}
+}
+
 func TestGateMiddlewareAndSameOrigin(t *testing.T) {
-	svc, _ := newTestService(t, true)
+	svc, _ := newTestService(t)
 	code, _, _ := svc.EnsureSetupCode()
 
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -248,12 +314,14 @@ func TestGateMiddlewareAndSameOrigin(t *testing.T) {
 		{"/api/scans", http.StatusUnauthorized, ""},
 	} {
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "https://192.168.1.5:9002"+c.path, nil))
+		req := httptest.NewRequest(http.MethodGet, "https://192.168.1.5:9002"+c.path, nil)
+		req.TLS = &tls.ConnectionState{}
+		h.ServeHTTP(w, req)
 		if w.Code != c.want || (c.loc != "" && w.Header().Get("Location") != c.loc) {
 			t.Errorf("before setup %s: code=%d loc=%q, want %d %q", c.path, w.Code, w.Header().Get("Location"), c.want, c.loc)
 		}
 		if w.Header().Get("Strict-Transport-Security") == "" {
-			t.Errorf("HTTPS mode should set HSTS on %s", c.path)
+			t.Errorf("TLS request should set HSTS on %s", c.path)
 		}
 	}
 
@@ -333,32 +401,10 @@ func TestGateMiddlewareAndSameOrigin(t *testing.T) {
 			t.Errorf("SafeNext(%q) = %q, want %q", in, got, want)
 		}
 	}
-
-	// RequireRole checks.
-	adminOnly := RequireRole(store.RoleAdmin)(inner)
-	rw := httptest.NewRecorder()
-	adminOnly.ServeHTTP(rw, httptest.NewRequest(http.MethodGet, "/users", nil))
-	if rw.Code != http.StatusUnauthorized {
-		t.Errorf("no principal: %d", rw.Code)
-	}
-	rw = httptest.NewRecorder()
-	vReq := httptest.NewRequest(http.MethodGet, "/users", nil)
-	vReq = vReq.WithContext(WithPrincipal(vReq.Context(), Principal{UserID: "2", Username: "u", Role: store.RoleUser}))
-	adminOnly.ServeHTTP(rw, vReq)
-	if rw.Code != http.StatusForbidden {
-		t.Errorf("user on admin route: %d", rw.Code)
-	}
-	rw = httptest.NewRecorder()
-	aReq := httptest.NewRequest(http.MethodGet, "/users", nil)
-	aReq = aReq.WithContext(WithPrincipal(aReq.Context(), Principal{UserID: "1", Username: "a", Role: store.RoleAdmin}))
-	adminOnly.ServeHTTP(rw, aReq)
-	if rw.Code != http.StatusOK {
-		t.Errorf("admin on admin route: %d", rw.Code)
-	}
 }
 
 func TestAuthEdgeCasesAndBranches(t *testing.T) {
-	svc, clock := newTestService(t, false)
+	svc, clock := newTestService(t)
 	code, _, err := svc.EnsureSetupCode()
 	if err != nil {
 		t.Fatal(err)
@@ -466,7 +512,9 @@ func TestAuthEdgeCasesAndBranches(t *testing.T) {
 	rl := NewRateLimiter()
 	rl.Now = func() time.Time { return *clock }
 	for i := range defaultMaxPerIP {
-		rl.RecordFailure("10.1.1.1", "user-"+string(rune('a'+i)))
+		if ok, _ := rl.Allow("10.1.1.1", "user-"+string(rune('a'+i))); !ok {
+			t.Fatalf("attempt %d should be allowed", i+1)
+		}
 	}
 	if ok, wait := rl.Allow("10.1.1.1", "fresh-user"); ok || wait <= 0 {
 		t.Errorf("IP-wide rate limit should trigger: ok=%v wait=%v", ok, wait)

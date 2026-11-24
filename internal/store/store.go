@@ -66,8 +66,7 @@ type Summary struct {
 
 // Store is an open database. It's safe to use from many goroutines.
 type Store struct {
-	dir string
-	db  *sql.DB
+	db *sql.DB
 }
 
 // DefaultDir is where Nuqs keeps its data: NUQS_DATA_DIR if set, otherwise
@@ -112,16 +111,13 @@ func Open(dir string) (*Store, error) {
 	// One connection: SQLite writes one at a time anyway, and this way the
 	// pragmas above always apply and writes never trip over each other.
 	db.SetMaxOpenConns(1)
-	s := &Store{dir: dir, db: db}
+	s := &Store{db: db}
 	if err := s.migrateWhenFree(); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	return s, nil
 }
-
-// Dir returns the data directory holding nuqs.db.
-func (s *Store) Dir() string { return s.dir }
 
 var uriEscaper = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
 

@@ -20,7 +20,8 @@ func newAuthedScansHandler(t *testing.T) (*Handler, string, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	authSvc := auth.NewService(st, auth.Options{Iterations: 1000})
+	authSvc := auth.NewService(st)
+	authSvc.Iterations = 1000
 	code, _, err := authSvc.EnsureSetupCode()
 	if err != nil {
 		t.Fatal(err)

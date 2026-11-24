@@ -368,7 +368,6 @@ func (a *App) serve(ctx context.Context, args []string) int {
 	addr := fs.String("addr", defaultAddr, "local address to listen on")
 	nmapPath := fs.String("nmap", os.Getenv("NUQS_NMAP_PATH"), "path to the nmap binary (default: NUQS_NMAP_PATH or nmap from PATH)")
 	allowRaw := fs.String("allow", os.Getenv("NUQS_ALLOWED_TARGETS"), "comma-separated allowed IPs or CIDRs (default: 127.0.0.0/8 loopback only)")
-	dataDir := fs.String("data", a.dataDir(), "directory for nuqs.db (default: NUQS_DATA_DIR or user config dir)")
 	fs.Usage = func() {
 		fmt.Fprintln(a.Stderr, "Usage: nuqs serve [flags]")
 		fs.PrintDefaults()
@@ -410,16 +409,17 @@ func (a *App) serve(ctx context.Context, args []string) int {
 		return ExitError
 	}
 
-	st, err := store.Open(*dataDir)
+	st, err := store.Open(a.dataDir())
 	if err != nil {
 		fmt.Fprintf(a.Stderr, "error: %v\n", err)
 		return ExitError
 	}
 	defer func() { _ = st.Close() }()
 
-	authSvc := auth.NewService(st, auth.Options{
-		Iterations: a.PBKDF2Iterations,
-	})
+	authSvc := auth.NewService(st)
+	if a.PBKDF2Iterations > 0 {
+		authSvc.Iterations = a.PBKDF2Iterations
+	}
 	setupCode, needsSetup, err := authSvc.EnsureSetupCode()
 	if err != nil {
 		fmt.Fprintf(a.Stderr, "error: %v\n", err)
