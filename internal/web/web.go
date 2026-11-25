@@ -41,7 +41,7 @@ var severityLevels = []string{"critical", "high", "medium", "low", "info"}
 const cspPolicy = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
 
 // pages are the full workspace pages, each filling the "content" block of layout.html.
-var pages = []string{"scans.html", "new.html", "settings.html", "scan.html", "host.html", "finding.html", "checks.html", "users.html"}
+var pages = []string{"scans.html", "new.html", "settings.html", "scan.html", "host.html", "finding.html", "checks.html", "check.html", "users.html"}
 
 // authPages are standalone screens rendered without workspace chrome.
 var authPages = []string{"setup.html", "login.html", "reset_password.html"}
@@ -74,6 +74,9 @@ func New(svc *tools.Service, scans *tools.Scans, addr string) (*Handler, error) 
 		"lower":      strings.ToLower,
 		"whole":      func(f float64) int { return int(f) },
 		"initials":   userInitials,
+		"firstLine":  firstLine,
+		"lines":      splitLines,
+		"refHost":    refHost,
 	}
 	base, err := template.New("").Funcs(funcs).ParseFS(assets, "templates/layout.html", "templates/parts.html", "templates/checks_library.html")
 	if err != nil {
@@ -148,6 +151,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /scans/{id}/hosts/{host}", h.hostPage)
 	mux.HandleFunc("GET /scans/{id}/vulns/{check}", h.findingPage)
 	mux.HandleFunc("GET /checks", h.checksPage)
+	mux.HandleFunc("GET /checks/{id}", h.checkPage)
 	mux.HandleFunc("GET /partials/checks", h.checksPartial)
 	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/static/nuqs-logo.png", http.StatusMovedPermanently)
@@ -744,16 +748,26 @@ func (h *Handler) hostPage(w http.ResponseWriter, r *http.Request) {
 
 // --- One vulnerability, on every host that has it ---
 
+type findingInstance struct {
+	model.Finding
+	Hostnames     []string
+	EvidenceLines []string
+	ServiceDetail string
+}
+
 type findingData struct {
-	ScanID    string
-	ScanName  string
-	CheckID   string
-	Title     string
-	Severity  string
-	Fix       string
-	Looks     string // what the check looks at, like "ports 23 · telnet"
-	Instances []model.Finding
-	HostCount int
+	ScanID      string
+	ScanName    string
+	CheckID     string
+	HasCheck    bool
+	Title       string
+	Description string
+	Severity    string
+	Fix         string
+	Looks       string // what the check looks at, like "ports 23 · telnet"
+	References  []check.Reference
+	Instances   []findingInstance
+	HostCount   int
 }
 
 func (h *Handler) findingPage(w http.ResponseWriter, r *http.Request) {
@@ -765,6 +779,7 @@ func (h *Handler) findingPage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("check")
 	data := findingData{ScanID: s.ID, ScanName: s.Name, CheckID: id}
 	filters := readFindingFilters(r.URL.Query())
+	hostNames, svcDetails := indexReportServices(s.Report.Hosts)
 	hosts := map[string]bool{}
 	for _, f := range s.Report.Findings {
 		if f.CheckID != id {
@@ -774,7 +789,12 @@ func (h *Handler) findingPage(w http.ResponseWriter, r *http.Request) {
 			data.Title, data.Severity, data.Fix = f.Title, f.Severity.String(), f.Fix
 		}
 		if filters.matches(f) {
-			data.Instances = append(data.Instances, f)
+			data.Instances = append(data.Instances, findingInstance{
+				Finding:       f,
+				Hostnames:     hostNames[f.Host],
+				EvidenceLines: splitLines(f.Evidence),
+				ServiceDetail: svcDetails[serviceKey(f.Host, f.Port, f.Protocol)],
+			})
 			hosts[f.Host] = true
 		}
 	}
@@ -790,15 +810,16 @@ func (h *Handler) findingPage(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("from") == "fixes" {
 		back = "/scans/" + s.ID + "?tab=fixes"
 	}
-	for _, c := range h.Service.ListChecks() {
-		if c.ID == id {
-			var looks []string
-			if len(c.Ports) > 0 {
-				looks = append(looks, "ports "+joinInts(c.Ports, ", "))
-			}
-			looks = append(looks, c.Services...)
-			data.Looks = strings.Join(looks, " · ")
+	if c, ok := h.Service.CheckByID(id); ok {
+		data.HasCheck = true
+		data.Description = c.Description
+		data.References = c.References
+		var looks []string
+		if len(c.Ports) > 0 {
+			looks = append(looks, "ports "+joinInts(c.Ports, ", "))
 		}
+		looks = append(looks, c.Services...)
+		data.Looks = strings.Join(looks, " · ")
 	}
 	h.render(w, r, "finding.html", page{
 		Title: data.Title, Nav: "scans",
@@ -813,6 +834,20 @@ func (h *Handler) checksPage(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, "checks.html", page{Title: "Check library", Nav: "checks", Crumbs: []crumb{{Label: "Check library"}}, Data: h.Service.ListChecks()})
 }
 
+func (h *Handler) checkPage(w http.ResponseWriter, r *http.Request) {
+	c, ok := h.Service.CheckByID(r.PathValue("id"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	h.render(w, r, "check.html", page{
+		Title:  c.Title,
+		Nav:    "checks",
+		Crumbs: []crumb{{Label: "Check library", Href: "/checks"}, {Label: c.Title}},
+		Data:   c,
+	})
+}
+
 func (h *Handler) checksPartial(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	if err := h.parts.ExecuteTemplate(&buf, "checks_library.html", h.Service.FilterChecks(r.URL.Query().Get("q"))); err != nil {
@@ -823,6 +858,71 @@ func (h *Handler) checksPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Helpers ---
+
+func firstLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func splitLines(s string) []string {
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func refHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	return strings.TrimPrefix(u.Host, "www.")
+}
+
+func serviceKey(host string, port int, proto string) string {
+	return fmt.Sprintf("%s|%d/%s", host, port, proto)
+}
+
+func indexReportServices(hosts []model.Host) (map[string][]string, map[string]string) {
+	names := make(map[string][]string, len(hosts))
+	svcs := map[string]string{}
+	for _, h := range hosts {
+		if len(h.Hostnames) > 0 {
+			names[h.Address] = h.Hostnames
+		}
+		for _, svc := range h.Services {
+			svcs[serviceKey(h.Address, svc.Port, svc.Protocol)] = formatServiceDetail(svc)
+		}
+	}
+	return names, svcs
+}
+
+func formatServiceDetail(svc model.Service) string {
+	var parts []string
+	if svc.Port > 0 && svc.Protocol != "" {
+		parts = append(parts, fmt.Sprintf("port %d/%s", svc.Port, svc.Protocol))
+	}
+	if svc.Name != "" {
+		parts = append(parts, svc.Name)
+	}
+	if product := strings.TrimSpace(svc.Product + " " + svc.Version); product != "" {
+		parts = append(parts, product)
+	}
+	if svc.Tunnel == "ssl" {
+		parts = append(parts, "over TLS")
+	}
+	if svc.Guessed {
+		parts = append(parts, "guessed from port")
+	}
+	return strings.Join(parts, " · ")
+}
 
 func joinInts(nums []int, sep string) string {
 	parts := make([]string, len(nums))

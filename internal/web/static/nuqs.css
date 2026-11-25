@@ -205,16 +205,36 @@ input[aria-invalid=true] {border-color:var(--critical)}
 .networkHint code {font-size:11px}
 @media(max-width:760px){.settings {grid-template-columns:1fr}.sections {position:static;display:flex;flex-wrap:wrap}}
 
-/* Host and finding pages. */
+/* Host, finding and check library pages. */
 .findingList {display:grid;gap:10px}
 .finding header {display:flex;align-items:center;gap:10px}
 .finding h3 a {text-decoration:none}
 .finding p {overflow-wrap:anywhere}
 .copy {justify-self:start}
-.checkGrid {display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
-.checkGrid article {background:var(--panel);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;display:grid;gap:6px;align-content:start}
-.checkGrid .badge,.finding .badge {justify-self:start}
-.checkGrid .endpoint {font:12px var(--mono);color:var(--sub);overflow-wrap:anywhere}
+.checkLink {text-decoration:none;color:var(--sub)}
+.checkLink:hover {color:var(--text);text-decoration:underline;text-underline-offset:3px}
+.checkGrid {display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.checkCard {background:var(--panel);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px 18px;display:grid;gap:6px;align-content:start;text-decoration:none;transition:transform .12s,background-color .12s}
+.checkCard:hover {transform:translateY(-2px);background:var(--hover);box-shadow:var(--shadow),0 6px 18px #0000001f}
+.checkCard .badge,.finding .badge {justify-self:start}
+.checkSummary {color:var(--sub);font-size:13px;line-height:1.45}
+.metaList {margin:0}
+.metaList div {display:flex;justify-content:space-between;gap:16px;padding:7px 0;border-bottom:.5px solid var(--rule);font-size:13px}
+.metaList div:last-child {border-bottom:0}
+.metaList dt {color:var(--sub);flex:none}
+.metaList dd {margin:0;text-align:right;overflow-wrap:anywhere}
+.refList {list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.refList a {display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:7px 10px;margin:0 -10px;border-radius:7px;text-decoration:none;font-size:13px}
+.refList a:hover {background:var(--hover)}
+.refHost {color:var(--sub);font:12px var(--mono);flex:none;white-space:nowrap}
+.evidenceLines {display:grid;gap:4px}
+.evidenceLines p {overflow-wrap:anywhere}
+.evidenceMeta {margin-top:4px;overflow-wrap:anywhere}
+.preLine {white-space:pre-line}
+@media(max-width:640px){
+  .metaList div,.refList a {flex-direction:column;align-items:flex-start;gap:2px}
+  .metaList dd {text-align:left}
+}
 .searchLabel input {height:36px;font-size:14px;max-width:520px}
 
 dialog {border:0;border-radius:14px;padding:22px;background:var(--panel);color:var(--text);box-shadow:0 20px 60px #00000059;width:min(380px,90vw)}

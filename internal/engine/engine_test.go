@@ -37,7 +37,7 @@ func (f *fakeCheck) Run(ctx context.Context, t check.Target) (*check.Result, err
 }
 
 func newCheck(id string, sev model.Severity, services []string, run func(context.Context, check.Target) (*check.Result, error)) *fakeCheck {
-	return &fakeCheck{info: check.Info{ID: id, Title: id + " title", Fix: id + " fix", Severity: sev, Services: services}, run: run}
+	return &fakeCheck{info: check.Info{ID: id, Title: id + " title", Description: id + " description", Fix: id + " fix", Severity: sev, Services: services}, run: run}
 }
 
 func found(evidence string) func(context.Context, check.Target) (*check.Result, error) {

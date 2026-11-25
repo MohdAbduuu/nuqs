@@ -16,7 +16,16 @@ func (s stub) Info() Info                                   { return s.info }
 func (s stub) Run(context.Context, Target) (*Result, error) { return nil, nil }
 
 func good(id string) stub {
-	return stub{Info{ID: id, Title: "t", Fix: "f", Severity: model.Low, Ports: []int{80}, Services: []string{"http"}}}
+	return stub{Info{
+		ID:          id,
+		Title:       "t",
+		Description: "plain-words description",
+		Fix:         "f",
+		Severity:    model.Low,
+		Ports:       []int{80},
+		Services:    []string{"http"},
+		References:  []Reference{{Title: "Example", URL: "https://example.com/ref"}},
+	}}
 }
 
 func TestApplies(t *testing.T) {
@@ -82,12 +91,16 @@ func TestValidateErrors(t *testing.T) {
 		{"lowercase words", []Check{mod(func(i *Info) { i.ID = "-a" })}},
 		{"duplicate ID", []Check{good("same"), good("same")}},
 		{"missing title", []Check{mod(func(i *Info) { i.Title = " " })}},
+		{"missing description", []Check{mod(func(i *Info) { i.Description = " " })}},
 		{"missing fix", []Check{mod(func(i *Info) { i.Fix = "" })}},
 		{"invalid severity", []Check{mod(func(i *Info) { i.Severity = 9 })}},
 		{"invalid port", []Check{mod(func(i *Info) { i.Ports = []int{0} })}},
 		{"invalid port", []Check{mod(func(i *Info) { i.Ports = []int{65536} })}},
 		{"must be lowercase", []Check{mod(func(i *Info) { i.Services = []string{"HTTP"} })}},
 		{"must be lowercase", []Check{mod(func(i *Info) { i.Services = []string{""} })}},
+		{"reference missing title", []Check{mod(func(i *Info) { i.References = []Reference{{URL: "https://example.com"}} })}},
+		{"invalid reference URL", []Check{mod(func(i *Info) { i.References = []Reference{{Title: "bad", URL: "javascript:alert(1)"}} })}},
+		{"invalid reference URL", []Check{mod(func(i *Info) { i.References = []Reference{{Title: "empty", URL: ""}} })}},
 		{"nil check", []Check{nil}},
 	}
 	for _, c := range cases {

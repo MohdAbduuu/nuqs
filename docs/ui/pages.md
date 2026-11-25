@@ -59,11 +59,16 @@ PDF or spreadsheet-ready CSV.
 
 ### Finding detail (W2)
 
-- Title, severity and **confirmed** or **inferred**
-- **What we saw:** the evidence, exactly as the server sent it
-- **How to fix it:** the fix text, and the CVE links if there are any
-- First seen and last seen
-- A **Check again** button that re-runs just this check on just this host
+- Title, severity, link to the check in the library and **confirmed** or **inferred**
+- **Why it matters:** plain-words explanation shared from `check.Info.Description`
+- **How to fix it:** the fix text with a one-click **Copy fix** button
+- **References:** links to standards, vendor docs and CVEs shared from `check.Info.References`
+- **What we saw:** multi-line evidence and detected service details for every affected host
+
+### Check library (`/checks` and `/checks/{id}`)
+
+- Searchable grid of short cards showing severity, title and the first line of the check's description
+- Clicking any card opens `/checks/{id}` with the full plain-words description, fix, where the check runs (services and ports) and source links
 
 ### History (W2)
 

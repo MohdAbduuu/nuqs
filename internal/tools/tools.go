@@ -37,12 +37,14 @@ func (e *ValidationError) Error() string {
 
 // CheckInfo describes one built-in vulnerability check for display and API output.
 type CheckInfo struct {
-	ID       string   `json:"id"`
-	Severity string   `json:"severity"`
-	Title    string   `json:"title"`
-	Fix      string   `json:"fix"`
-	Ports    []int    `json:"ports"`
-	Services []string `json:"services"`
+	ID          string            `json:"id"`
+	Severity    string            `json:"severity"`
+	Title       string            `json:"title"`
+	Description string            `json:"description"`
+	Fix         string            `json:"fix"`
+	Ports       []int             `json:"ports"`
+	Services    []string          `json:"services"`
+	References  []check.Reference `json:"references,omitempty"`
 }
 
 // Status describes the running engine, loaded checks and configured scan scope.
@@ -100,18 +102,30 @@ func (s *Service) ListChecks() []CheckInfo {
 	for _, c := range all {
 		info := c.Info()
 		items = append(items, CheckInfo{
-			ID:       info.ID,
-			Severity: info.Severity.String(),
-			Title:    info.Title,
-			Fix:      info.Fix,
-			Ports:    info.Ports,
-			Services: info.Services,
+			ID:          info.ID,
+			Severity:    info.Severity.String(),
+			Title:       info.Title,
+			Description: info.Description,
+			Fix:         info.Fix,
+			Ports:       info.Ports,
+			Services:    info.Services,
+			References:  info.References,
 		})
 	}
 	return items
 }
 
-// FilterChecks returns checks matching query across title, ID, severity, services and ports.
+// CheckByID returns the metadata for one registered check, or false if none matches.
+func (s *Service) CheckByID(id string) (CheckInfo, bool) {
+	for _, c := range s.ListChecks() {
+		if c.ID == id {
+			return c, true
+		}
+	}
+	return CheckInfo{}, false
+}
+
+// FilterChecks returns checks matching query across title, description, ID, severity, services and ports.
 func (s *Service) FilterChecks(query string) []CheckInfo {
 	items := s.ListChecks()
 	term := strings.ToLower(strings.TrimSpace(query))
@@ -129,6 +143,7 @@ func (s *Service) FilterChecks(query string) []CheckInfo {
 
 func checkMatches(item CheckInfo, term string) bool {
 	if strings.Contains(strings.ToLower(item.Title), term) ||
+		strings.Contains(strings.ToLower(item.Description), term) ||
 		strings.Contains(strings.ToLower(item.ID), term) ||
 		strings.Contains(strings.ToLower(item.Severity), term) {
 		return true

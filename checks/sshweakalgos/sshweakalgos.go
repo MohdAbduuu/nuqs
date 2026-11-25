@@ -27,11 +27,18 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "ssh-weak-algorithms",
 		Title:            "SSH server allows weak algorithms",
+		Description:      "The SSH server still advertises outdated key exchange, host key, cipher or MAC algorithms with known cryptographic weaknesses.\nLegacy options such as SHA-1 key exchange, DSA/SHA-1 RSA host keys, RC4/CBC ciphers and MD5 or truncated MACs are vulnerable to downgrade, collision or plaintext-recovery attacks (including CVE-2008-5161 for CBC ciphers). Removing them forces clients onto modern cryptography.",
 		Severity:         model.Low,
 		Fix:              "Remove the weak algorithms from KexAlgorithms, HostKeyAlgorithms, Ciphers and MACs in sshd_config, or update OpenSSH. Its defaults are fine.",
 		RemediationTitle: "Remove weak SSH algorithms",
 		Ports:            []int{22},
 		Services:         []string{"ssh"},
+		References: []check.Reference{
+			{Title: "RFC 9142: Key Exchange (KEX) Method Updates and Recommendations for SSH", URL: "https://datatracker.ietf.org/doc/html/rfc9142"},
+			{Title: "CVE-2008-5161: SSH CBC Mode Plaintext Recovery", URL: "https://nvd.nist.gov/vuln/detail/CVE-2008-5161"},
+			{Title: "OpenSSH Legacy Options", URL: "https://www.openssh.com/legacy.html"},
+			{Title: "CWE-327: Use of a Broken or Risky Cryptographic Algorithm", URL: "https://cwe.mitre.org/data/definitions/327.html"},
+		},
 	}
 }
 

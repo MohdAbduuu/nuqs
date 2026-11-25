@@ -1,24 +1,44 @@
-<!-- One vulnerability: what it is, how to fix it, and every host that has it with what we saw there. -->
+<!-- One vulnerability: why it matters, how to fix it, references and every host that has it. -->
 {{define "content"}}{{with .Data}}
 <section class="page">
   <div class="pageHead">
-    <p><span class="badge {{badgeClass .Severity}}">{{.Severity}}</span> <span class="mono small">{{.CheckID}}</span></p>
+    <p><span class="badge {{badgeClass .Severity}}">{{.Severity}}</span> {{if .HasCheck}}<a class="mono small checkLink" href="/checks/{{.CheckID}}">{{.CheckID}}</a>{{else}}<span class="mono small">{{.CheckID}}</span>{{end}}</p>
     <h1>{{.Title}}</h1>
   </div>
+  {{if .Description}}
+  <div class="card">
+    <h2>Why it matters</h2>
+    {{range lines .Description}}<p>{{.}}</p>{{end}}
+  </div>
+  {{end}}
   <div class="card">
     <h2>How to fix it</h2>
     <p>{{.Fix}}</p>
     <button type="button" class="copy" data-fix="{{.Fix}}">Copy fix</button>
     {{if .Looks}}<p class="small subtle">This check looks at {{.Looks}}.</p>{{end}}
   </div>
+  {{if .References}}
+  <div class="card">
+    <h2>References</h2>
+    <ul class="refList">{{range .References}}<li>
+      <a href="{{.URL}}" target="_blank" rel="noopener noreferrer">
+        <span>{{.Title}}</span>
+        <span class="refHost">{{refHost .URL}} ↗</span>
+      </a>
+    </li>{{end}}</ul>
+  </div>
+  {{end}}
   {{if .Instances}}
   <h2 class="groupTitle">Found on {{.HostCount}} {{if eq .HostCount 1}}host{{else}}hosts{{end}}</h2>
   <div class="tableCard">
     <table class="list">
       <thead><tr><th>Host</th><th class="wide">What we saw</th><th>Confidence</th></tr></thead>
       <tbody>{{range .Instances}}<tr>
-        <td><a class="mono" href="/scans/{{$.Data.ScanID}}/hosts/{{.Host}}">{{.Host}}:{{.Port}}</a></td>
-        <td>{{.Evidence}}</td>
+        <td><a class="mono" href="/scans/{{$.Data.ScanID}}/hosts/{{.Host}}">{{.Host}}:{{.Port}}</a>{{if .Hostnames}}<small>{{join .Hostnames ", "}}</small>{{end}}</td>
+        <td>
+          <div class="evidenceLines">{{range .EvidenceLines}}<p>{{.}}</p>{{end}}</div>
+          {{if .ServiceDetail}}<small class="mono evidenceMeta">{{.ServiceDetail}}</small>{{end}}
+        </td>
         <td><span title="{{if eq .Confidence "confirmed"}}We saw this happen.{{else}}Worked out from the version number or the port, not seen directly.{{end}}">{{.Confidence}}</span></td>
       </tr>{{end}}</tbody>
     </table>

@@ -57,6 +57,18 @@ func TestText(t *testing.T) {
 	}
 }
 
+func TestTextMultilineEvidence(t *testing.T) {
+	r := sample()
+	r.Findings[0].Evidence = "line one\nline two"
+	var b bytes.Buffer
+	if err := Text(&b, r); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "    Evidence: line one\n              line two\n") {
+		t.Errorf("multiline evidence not indented:\n%s", b.String())
+	}
+}
+
 func TestTextNoFindings(t *testing.T) {
 	r := sample()
 	r.Findings, r.Errors = nil, nil

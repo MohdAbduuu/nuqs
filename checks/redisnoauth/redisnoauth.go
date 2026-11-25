@@ -31,11 +31,17 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "redis-no-auth",
 		Title:            "Redis server has no password",
+		Description:      "Anyone who can reach this Redis port can read cached data, alter keys or run administrative commands without a password.\nRedis trusts every client once connected unless authentication or ACLs are configured. Attackers commonly abuse open Redis servers to steal session tokens, poison application data, or overwrite files on disk to gain shell access.",
 		Severity:         model.High,
 		Fix:              "Set requirepass in redis.conf, or bind Redis to localhost only.",
 		RemediationTitle: "Require Redis authentication",
 		Ports:            []int{6379},
 		Services:         []string{"redis"},
+		References: []check.Reference{
+			{Title: "Redis Security Documentation", URL: "https://redis.io/docs/latest/operate/oss_and_stack/management/security/"},
+			{Title: "Redis Access Control Lists (ACL)", URL: "https://redis.io/docs/latest/operate/oss_and_stack/management/security/acl/"},
+			{Title: "CWE-306: Missing Authentication for Critical Function", URL: "https://cwe.mitre.org/data/definitions/306.html"},
+		},
 	}
 }
 

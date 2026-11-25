@@ -28,10 +28,17 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "http-security-headers",
 		Title:            "Web server is missing security headers",
+		Description:      "The web server omits standard browser security headers that guard users against script injection, clickjacking and downgrade attacks.\nHeaders like Content-Security-Policy, X-Content-Type-Options, X-Frame-Options and Strict-Transport-Security tell browsers how to restrict untrusted scripts, MIME sniffing, framing and plain-HTTP connections. Without them, a small bug in the site or a network attacker becomes much easier to exploit.",
 		Severity:         model.Low,
 		Fix:              "Configure the web server to send the missing headers. Most servers can add them in one line of config.",
 		RemediationTitle: "Add HTTP security headers",
 		Services:         []string{"http", "https", "http-alt", "http-proxy", "https-alt"},
+		References: []check.Reference{
+			{Title: "OWASP HTTP Security Response Headers Cheat Sheet", URL: "https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html"},
+			{Title: "MDN Web Docs: Content-Security-Policy", URL: "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy"},
+			{Title: "RFC 6797: HTTP Strict Transport Security (HSTS)", URL: "https://datatracker.ietf.org/doc/html/rfc6797"},
+			{Title: "CWE-693: Protection Mechanism Failure", URL: "https://cwe.mitre.org/data/definitions/693.html"},
+		},
 	}
 }
 
