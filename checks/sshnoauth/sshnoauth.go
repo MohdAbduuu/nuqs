@@ -30,7 +30,7 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "ssh-no-auth",
 		Title:            "SSH server lets anyone log in without a password",
-		Description:      "This SSH server accepts logins with no password or key, giving anyone on the network direct remote access.\nAllowing the SSH \"none\" authentication method removes login protection completely. Any client that can reach the port can obtain a shell or forward traffic through the host without credentials.",
+		Description:      "This SSH server lets anyone log in without a password or key.\nAllowing the SSH \"none\" login method removes authentication completely, so anyone on the network can get a shell or tunnel traffic through the host.",
 		Severity:         model.Critical,
 		Fix:              "Make the SSH server ask for a key or password for every login (in OpenSSH, set PermitEmptyPasswords no). On a device where you can't change that, update its firmware or turn SSH off.",
 		RemediationID:    "ssh-public-key-only",

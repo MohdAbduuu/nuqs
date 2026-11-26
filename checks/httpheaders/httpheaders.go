@@ -28,7 +28,7 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "http-security-headers",
 		Title:            "Web server is missing security headers",
-		Description:      "The web server omits standard browser security headers that guard users against script injection, clickjacking and downgrade attacks.\nHeaders like Content-Security-Policy, X-Content-Type-Options, X-Frame-Options and Strict-Transport-Security tell browsers how to restrict untrusted scripts, MIME sniffing, framing and plain-HTTP connections. Without them, a small bug in the site or a network attacker becomes much easier to exploit.",
+		Description:      "The web server is missing basic security headers that protect people in their browser.\nHeaders like CSP, X-Frame-Options and HSTS stop framing, script injection and plain-HTTP downgrades, so leaving them out makes other site bugs easier to abuse.",
 		Severity:         model.Low,
 		Fix:              "Configure the web server to send the missing headers. Most servers can add them in one line of config.",
 		RemediationTitle: "Add HTTP security headers",

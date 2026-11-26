@@ -22,7 +22,7 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "telnet-open",
 		Title:            "Unencrypted Telnet server",
-		Description:      "Telnet sends usernames, passwords and terminal commands in plain text with no encryption.\nAnyone able to sniff traffic on the same network can read credentials and session output or hijack the connection. Telnet has no cryptographic protection and should be replaced by SSH.",
+		Description:      "Telnet has no encryption, so everything typed in a session crosses the network in the clear.\nSomeone on the same Wi-Fi or LAN can capture logins, see every command and take over the session.",
 		Severity:         model.Medium,
 		Fix:              "Turn off Telnet and use SSH instead. Telnet sends passwords as plain text, so anyone on the network can read them.",
 		RemediationTitle: "Replace Telnet with SSH",

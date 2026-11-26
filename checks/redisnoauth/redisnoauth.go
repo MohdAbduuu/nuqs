@@ -31,7 +31,7 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "redis-no-auth",
 		Title:            "Redis server has no password",
-		Description:      "Anyone who can reach this Redis port can read cached data, alter keys or run administrative commands without a password.\nRedis trusts every client once connected unless authentication or ACLs are configured. Attackers commonly abuse open Redis servers to steal session tokens, poison application data, or overwrite files on disk to gain shell access.",
+		Description:      "Anyone who can reach this Redis port can read or change data without a password.\nAttackers often abuse open Redis servers to steal session tokens, poison app data or write files to the host.",
 		Severity:         model.High,
 		Fix:              "Set requirepass in redis.conf, or bind Redis to localhost only.",
 		RemediationTitle: "Require Redis authentication",

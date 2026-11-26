@@ -37,7 +37,7 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "ssh-password-auth",
 		Title:            "SSH server allows password login",
-		Description:      "The SSH server allows password logins, which can be guessed or stuffed by automated bots.\nInternet-facing and internal SSH ports are frequent targets for credential-stuffing and brute-force attacks. Switching to SSH public-key authentication eliminates weak or reused passwords as an entry point.",
+		Description:      "This SSH server accepts password logins, which automated bots constantly try to guess.\nReused or weak passwords are one of the most common ways attackers break into servers over SSH.",
 		Severity:         model.Medium,
 		Fix:              "Use SSH keys and set PasswordAuthentication no in sshd_config. Passwords can be guessed, keys can't.",
 		RemediationID:    "ssh-public-key-only",

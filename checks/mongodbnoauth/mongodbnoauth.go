@@ -41,7 +41,7 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "mongodb-no-auth",
 		Title:            "MongoDB server has no password",
-		Description:      "Anyone who can reach this MongoDB port can read, modify or delete databases without signing in.\nMongoDB runs without access control until authorization is explicitly enabled. Exposed instances are routinely scanned, downloaded and wiped by automated attacks within minutes of going online.",
+		Description:      "Anyone who can reach this MongoDB port can read, change or wipe databases without logging in.\nOpen MongoDB servers are scanned and ransomed by automated bots within minutes of going online.",
 		Severity:         model.High,
 		Fix:              "Turn on access control (security.authorization: enabled in mongod.conf) and create users, or bind MongoDB to localhost only.",
 		RemediationTitle: "Enable MongoDB access control",

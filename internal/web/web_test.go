@@ -163,11 +163,11 @@ func TestEmptyPages(t *testing.T) {
 		t.Fatalf("/checks: %d", code)
 	}
 	mustContain(t, "/checks", body, `hx-get="/partials/checks"`, `href="/checks/telnet-open"`, `href="/checks/ftp-anonymous-login"`,
-		"Telnet sends usernames, passwords and terminal commands in plain text with no encryption.")
+		"Telnet has no encryption, so everything typed in a session crosses the network in the clear.")
 	if strings.Contains(body, "Turn off Telnet and use SSH instead.") {
 		t.Error("/checks cards should stay short and not show the full fix text")
 	}
-	if strings.Contains(body, "Anyone able to sniff traffic on the same network") {
+	if strings.Contains(body, "Someone on the same Wi-Fi or LAN") {
 		t.Error("/checks cards should only show the first line of the description")
 	}
 	_, body = get(t, h, "/partials/checks?q=ftp")
@@ -182,7 +182,7 @@ func TestEmptyPages(t *testing.T) {
 		t.Fatalf("/checks/telnet-open: %d", code)
 	}
 	mustContain(t, "check detail", body, "Unencrypted Telnet server", "Why it matters",
-		"Anyone able to sniff traffic on the same network", "How to fix it", "Turn off Telnet and use SSH instead.",
+		"Someone on the same Wi-Fi or LAN", "How to fix it", "Turn off Telnet and use SSH instead.",
 		"Where it runs", "telnet", "Sources", "CWE-319", "cwe.mitre.org")
 	if code, _ := get(t, h, "/checks/does-not-exist"); code != http.StatusNotFound {
 		t.Errorf("unknown check detail: got %d, want 404", code)
@@ -269,7 +269,7 @@ func TestCompletedScanPages(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("finding page: %d", code)
 	}
-	mustContain(t, "finding page", body, "Why it matters", "Anyone able to sniff traffic on the same network",
+	mustContain(t, "finding page", body, "Why it matters", "Someone on the same Wi-Fi or LAN",
 		"How to fix it", "References", "CWE-319", `href="/checks/telnet-open"`,
 		"Found on 1 host", "This check looks at telnet", `href="/scans/`+s.ID+`/hosts/127.0.0.1"`,
 		"port 23/tcp · telnet · &lt;script&gt;", "lab.local")
