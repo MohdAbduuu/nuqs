@@ -17,7 +17,7 @@ The `Makefile` holds the commands used both locally and in CI. Run `make` (or `m
 |---|---|
 | `make build` | Build the `nuqs` binary (`nuqs.exe` on Windows) |
 | `make test` | Run unit tests with `-race` and check total coverage is at least 85% |
-| `make lint` | Run `go vet` (normal and integration tags) and `golangci-lint` |
+| `make lint` | Run `golangci-lint` (including doc comment checks) |
 | `make docs` | Build the docs site strictly into `site/` (use `make docs-serve` for live preview) |
 | `make lab` | Run the Docker loopback lab and compare against `lab/expected-report.json` |
 | `make integration` | Run the real-Nmap integration test |

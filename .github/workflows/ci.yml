@@ -43,9 +43,6 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15
-          install-only: true
-      - name: Lint
-        run: make lint
 
   fuzz:
     name: Fuzz ${{ matrix.pkg }}
@@ -133,6 +130,39 @@ jobs:
         with:
           go-version-file: go.mod
       - run: GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o /dev/null ./...
+
+  # Tests the Windows Makefile path (nuqs.exe and PowerShell helpers).
+  windows:
+    name: Smoke test on Windows
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Keep LF line endings for gofmt
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: make build
+      - name: Smoke test
+        run: |
+          .\nuqs.exe version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\nuqs.exe checks
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\nuqs.exe scan -- -oN
+          if ($LASTEXITCODE -eq 0) { throw "bad target was not rejected" }
+          Write-Host "bad target rejected, good"
+          exit 0
+      - name: Formatting
+        run: make fmt-check
+      - name: Vet
+        run: make vet
+      - name: Unit tests and coverage
+        run: make test
+      - name: Clean
+        run: make clean
 
   # GitHub's Mac machines are often busy, so the real Mac run is weekly or by hand.
   macos:

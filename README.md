@@ -60,7 +60,7 @@ The full map (diagram plus every file) is on the [website](https://nuqs-org.gith
 ```bash
 make build          # build the nuqs binary
 make test           # unit tests with -race and >= 85% coverage
-make lint           # go vet and golangci-lint (including doc comments)
+make lint           # golangci-lint (including doc comments)
 make integration    # real-Nmap integration test
 make docs-serve     # docs website at http://127.0.0.1:8000 (make docs to build strictly)
 make lab            # Docker loopback lab against lab/expected-report.json

@@ -33,7 +33,7 @@ help:
 	$(info $(INDENT)make fmt          format all Go files with gofmt)
 	$(info $(INDENT)make fmt-check    fail if any Go file needs gofmt)
 	$(info $(INDENT)make vet          run go vet on normal and integration packages)
-	$(info $(INDENT)make lint         run go vet and golangci-lint)
+	$(info $(INDENT)make lint         run golangci-lint)
 	$(info $(INDENT)make docs         build the docs site strictly into site/)
 	$(info $(INDENT)make docs-serve   preview the docs site locally at http://127.0.0.1:8000)
 	$(info $(INDENT)make lab          run the Docker loopback lab and compare against expected JSON)
@@ -78,7 +78,7 @@ vet:
 	$(GO) vet ./...
 	$(GO) vet -tags integration ./...
 
-lint: vet
+lint:
 	$(GOLANGCI_LINT) run
 
 docs:
