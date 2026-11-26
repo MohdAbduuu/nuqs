@@ -44,26 +44,9 @@ func TimelineText(w io.Writer, tl diff.Timeline) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "  SCAN\tSTARTED\tSTATUS\tDETAILS")
 	for _, e := range tl.Entries {
-		fmt.Fprintf(tw, "  %d\t%s\t%s\t%s\n", e.ScanID, e.Started.Local().Format("2006-01-02 15:04"), timelineStateLabel(e.State), timelineEntryDetail(e))
+		fmt.Fprintf(tw, "  %d\t%s\t%s\t%s\n", e.ScanID, e.Started.Local().Format("2006-01-02 15:04"), e.State.Label(), timelineEntryDetail(e))
 	}
 	return tw.Flush()
-}
-
-func timelineStateLabel(st diff.State) string {
-	switch st {
-	case diff.StateOpen:
-		return "open"
-	case diff.StateReopened:
-		return "reopened"
-	case diff.StateFixed:
-		return "fixed"
-	case diff.StateNotChecked:
-		return "not checked"
-	case diff.StateAbsent:
-		return "not found"
-	default:
-		return string(st)
-	}
 }
 
 func timelineEntryDetail(e diff.Entry) string {

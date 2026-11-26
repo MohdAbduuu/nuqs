@@ -186,3 +186,18 @@ func TestBuildTimelineSortingAndEdgeCases(t *testing.T) {
 		t.Errorf("single scan summary: %v %q", ok, single.Summary())
 	}
 }
+
+func TestStateLabel(t *testing.T) {
+	for state, want := range map[State]string{
+		StateOpen:       "open",
+		StateReopened:   "reopened",
+		StateFixed:      "fixed",
+		StateNotChecked: "not checked",
+		StateAbsent:     "not found",
+		State("custom"): "custom",
+	} {
+		if got := state.Label(); got != want {
+			t.Errorf("State(%q).Label() = %q, want %q", state, got, want)
+		}
+	}
+}

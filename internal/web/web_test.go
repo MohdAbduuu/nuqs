@@ -473,21 +473,6 @@ func TestHelpers(t *testing.T) {
 	if badgeClass("nope") != "info" || severityRank("nope") != 5 {
 		t.Error("unknown severities fall back to info")
 	}
-	for state, want := range map[diff.State]string{
-		diff.StateOpen:       "open",
-		diff.StateReopened:   "reopened",
-		diff.StateFixed:      "fixed",
-		diff.StateNotChecked: "not checked",
-		diff.StateAbsent:     "not found",
-		diff.State("other"):  "other",
-	} {
-		if got := timelineStateLabel(state); got != want {
-			t.Errorf("timelineStateLabel(%q) = %q, want %q", state, got, want)
-		}
-	}
-	if timelineStateClass(diff.StateReopened) != "reopened" || timelineStateClass(diff.State("other")) != "not_checked" {
-		t.Error("timelineStateClass")
-	}
 	if firstLine("") != "" || firstLine("\n  first line  \nsecond") != "first line" {
 		t.Errorf("firstLine edge cases failed: %q %q", firstLine(""), firstLine("\n  first line  \nsecond"))
 	}

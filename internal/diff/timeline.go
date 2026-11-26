@@ -25,6 +25,24 @@ const (
 	StateAbsent     State = "not_found"   // clean scan before the finding was first seen
 )
 
+// Label returns the plain-words status shown in the CLI and web UI.
+func (s State) Label() string {
+	switch s {
+	case StateOpen:
+		return "open"
+	case StateReopened:
+		return "reopened"
+	case StateFixed:
+		return "fixed"
+	case StateNotChecked:
+		return "not checked"
+	case StateAbsent:
+		return "not found"
+	default:
+		return string(s)
+	}
+}
+
 // ScanReport pairs a scan's metadata with its report for building a timeline.
 type ScanReport struct {
 	ID      int64

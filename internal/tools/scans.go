@@ -466,63 +466,26 @@ func (m *Scans) FindingTimelines(scanID string, findingIDs []string) map[string]
 }
 
 func (m *Scans) sameScopeReports(scanID string) []diff.ScanReport {
-	if m.Store != nil {
-		if n, err := strconv.ParseInt(scanID, 10, 64); err == nil {
-			if runs, err := m.Store.SameScopeRuns(n); err == nil {
-				reports := make([]diff.ScanReport, 0, len(runs))
-				for _, r := range runs {
-					reports = append(reports, diff.ScanReport{
-						ID:      r.ID,
-						Name:    r.Name,
-						Started: r.Started,
-						Targets: r.Targets,
-						Report:  r.Report,
-					})
-				}
-				return reports
-			}
-		}
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	var anchor *Scan
-	for _, e := range m.list {
-		if e.scan.ID == scanID {
-			s := e.snapshot()
-			anchor = &s
-			break
-		}
-	}
-	if anchor == nil || anchor.Report == nil {
+	if m.Store == nil {
 		return nil
 	}
-	anchorRun := toScopeRun(*anchor)
-	var reports []diff.ScanReport
-	for _, e := range m.list {
-		s := e.snapshot()
-		if s.Report == nil {
-			continue
-		}
-		if s.ID != anchor.ID && (s.Status != ScanCompleted || s.Error != "") {
-			continue
-		}
-		if !store.SameScope(anchorRun, toScopeRun(s)) {
-			continue
-		}
-		id, _ := strconv.ParseInt(s.ID, 10, 64)
+	n, err := strconv.ParseInt(scanID, 10, 64)
+	if err != nil {
+		return nil
+	}
+	runs, err := m.Store.SameScopeRuns(n)
+	if err != nil {
+		return nil
+	}
+	reports := make([]diff.ScanReport, 0, len(runs))
+	for _, r := range runs {
 		reports = append(reports, diff.ScanReport{
-			ID:      id,
-			Name:    s.Name,
-			Started: s.Started,
-			Targets: s.Targets,
-			Report:  s.Report,
+			ID:      r.ID,
+			Name:    r.Name,
+			Started: r.Started,
+			Targets: r.Targets,
+			Report:  r.Report,
 		})
 	}
 	return reports
-}
-
-func toScopeRun(s Scan) store.Run {
-	raw, _ := json.Marshal(s.Settings)
-	return store.Run{Targets: s.Targets, Settings: string(raw)}
 }

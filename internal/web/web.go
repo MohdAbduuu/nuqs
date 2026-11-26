@@ -67,19 +67,17 @@ type Handler struct {
 // New parses the embedded templates and returns a ready web Handler.
 func New(svc *tools.Service, scans *tools.Scans, addr string) (*Handler, error) {
 	funcs := template.FuncMap{
-		"join":          strings.Join,
-		"joinInts":      joinInts,
-		"badgeClass":    badgeClass,
-		"duration":      formatDuration,
-		"clock":         func(t time.Time) string { return t.Local().Format("Jan 2, 15:04:05") },
-		"lower":         strings.ToLower,
-		"whole":         func(f float64) int { return int(f) },
-		"initials":      userInitials,
-		"timelineLabel": timelineStateLabel,
-		"timelineClass": timelineStateClass,
-		"firstLine":     firstLine,
-		"lines":         splitLines,
-		"refHost":       refHost,
+		"join":       strings.Join,
+		"joinInts":   joinInts,
+		"badgeClass": badgeClass,
+		"duration":   formatDuration,
+		"clock":      func(t time.Time) string { return t.Local().Format("Jan 2, 15:04:05") },
+		"lower":      strings.ToLower,
+		"whole":      func(f float64) int { return int(f) },
+		"initials":   userInitials,
+		"firstLine":  firstLine,
+		"lines":      splitLines,
+		"refHost":    refHost,
 	}
 	base, err := template.New("").Funcs(funcs).ParseFS(assets, "templates/layout.html", "templates/parts.html", "templates/checks_library.html")
 	if err != nil {
@@ -1024,32 +1022,6 @@ func badgeClass(level string) string {
 		return level
 	}
 	return "info"
-}
-
-func timelineStateLabel(st diff.State) string {
-	switch st {
-	case diff.StateOpen:
-		return "open"
-	case diff.StateReopened:
-		return "reopened"
-	case diff.StateFixed:
-		return "fixed"
-	case diff.StateNotChecked:
-		return "not checked"
-	case diff.StateAbsent:
-		return "not found"
-	default:
-		return string(st)
-	}
-}
-
-func timelineStateClass(st diff.State) string {
-	switch st {
-	case diff.StateOpen, diff.StateReopened, diff.StateFixed, diff.StateNotChecked, diff.StateAbsent:
-		return string(st)
-	default:
-		return "not_checked"
-	}
 }
 
 func severityRank(level string) int {

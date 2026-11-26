@@ -71,7 +71,7 @@
         <tbody>{{range .Entries}}<tr>
           <td><a class="mono" href="/scans/{{.ScanID}}">Scan {{.ScanID}}</a>{{if eq .ScanID $.Data.CurrentScanID}} <span class="subtle small">(this scan)</span>{{end}}</td>
           <td class="mono small">{{clock .Started}}</td>
-          <td><span class="tlStatus {{timelineClass .State}}">{{timelineLabel .State}}</span></td>
+          <td><span class="tlStatus {{.State}}">{{.State.Label}}</span></td>
           <td>{{if eq .State "reopened"}}{{.Evidence}}{{if .Evidence}} · {{end}}<span class="subtle">came back after being fixed</span>{{else if eq .State "open"}}{{.Evidence}}{{else if eq .State "not_found"}}<span class="subtle">not present before first seen</span>{{else}}{{.Reason}}{{end}}</td>
         </tr>{{end}}</tbody>
       </table>
