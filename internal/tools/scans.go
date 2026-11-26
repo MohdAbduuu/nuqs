@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nuqs-org/nuqs/internal/diff"
 	"github.com/nuqs-org/nuqs/internal/engine"
 	"github.com/nuqs-org/nuqs/internal/progress"
 	"github.com/nuqs-org/nuqs/internal/store"
@@ -443,4 +444,85 @@ func (m *Scans) StopAll() {
 	for _, e := range m.list {
 		e.cancel()
 	}
+}
+
+// FindingTimelines builds a chronological timeline across every scan of the
+// same targets and ports as scanID for each finding ID in findingIDs.
+func (m *Scans) FindingTimelines(scanID string, findingIDs []string) map[string]diff.Timeline {
+	out := map[string]diff.Timeline{}
+	if len(findingIDs) == 0 {
+		return out
+	}
+	reports := m.sameScopeReports(scanID)
+	if len(reports) == 0 {
+		return out
+	}
+	for _, fid := range findingIDs {
+		if tl, ok := diff.BuildTimeline(fid, reports); ok {
+			out[fid] = tl
+		}
+	}
+	return out
+}
+
+func (m *Scans) sameScopeReports(scanID string) []diff.ScanReport {
+	if m.Store != nil {
+		if n, err := strconv.ParseInt(scanID, 10, 64); err == nil {
+			if runs, err := m.Store.SameScopeRuns(n); err == nil {
+				reports := make([]diff.ScanReport, 0, len(runs))
+				for _, r := range runs {
+					reports = append(reports, diff.ScanReport{
+						ID:      r.ID,
+						Name:    r.Name,
+						Started: r.Started,
+						Targets: r.Targets,
+						Report:  r.Report,
+					})
+				}
+				return reports
+			}
+		}
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var anchor *Scan
+	for _, e := range m.list {
+		if e.scan.ID == scanID {
+			s := e.snapshot()
+			anchor = &s
+			break
+		}
+	}
+	if anchor == nil || anchor.Report == nil {
+		return nil
+	}
+	anchorRun := toScopeRun(*anchor)
+	var reports []diff.ScanReport
+	for _, e := range m.list {
+		s := e.snapshot()
+		if s.Report == nil {
+			continue
+		}
+		if s.ID != anchor.ID && (s.Status != ScanCompleted || s.Error != "") {
+			continue
+		}
+		if !store.SameScope(anchorRun, toScopeRun(s)) {
+			continue
+		}
+		id, _ := strconv.ParseInt(s.ID, 10, 64)
+		reports = append(reports, diff.ScanReport{
+			ID:      id,
+			Name:    s.Name,
+			Started: s.Started,
+			Targets: s.Targets,
+			Report:  s.Report,
+		})
+	}
+	return reports
+}
+
+func toScopeRun(s Scan) store.Run {
+	raw, _ := json.Marshal(s.Settings)
+	return store.Run{Targets: s.Targets, Settings: string(raw)}
 }

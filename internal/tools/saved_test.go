@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nuqs-org/nuqs/internal/diff"
 	"github.com/nuqs-org/nuqs/internal/engine"
 	"github.com/nuqs-org/nuqs/internal/model"
 	"github.com/nuqs-org/nuqs/internal/store"
@@ -249,4 +250,62 @@ func TestRefreshKeepsAScanThatStartsMeanwhile(t *testing.T) {
 		}
 		close(release)
 	}
+}
+
+func TestFindingTimelines(t *testing.T) {
+	const noTelnetXML = `<nmaprun><host><status state="up"/><address addr="127.0.0.1" addrtype="ipv4"/><ports></ports></host></nmaprun>`
+	fid := model.FindingID("127.0.0.1", "telnet-open", 23, "tcp")
+
+	runLifecycle := func(t *testing.T, withStore bool) {
+		t.Helper()
+		runner := &fakeRunner{xml: []byte(telnetXML)}
+		m := &Scans{Service: newTestService(runner)}
+		if withStore {
+			m.Store = openStore(t, t.TempDir())
+		}
+		runOne := func(ports string, xml string) Scan {
+			runner.xml = []byte(xml)
+			s, err := m.Start(NewScan{Kind: "custom", Settings: ScanRequest{Target: "127.0.0.1", Ports: ports}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return waitFor(t, m, s.ID, finished)
+		}
+
+		s1 := runOne("23", telnetXML)
+		runOne("22", telnetXML) // other ports, excluded from timeline
+		s3 := runOne("23", noTelnetXML)
+		s4 := runOne("23", telnetXML)
+
+		got := m.FindingTimelines(s4.ID, []string{fid})
+		tl, ok := got[fid]
+		if !ok {
+			t.Fatalf("missing timeline for %s: %+v", fid, got)
+		}
+		if !tl.Reopened || tl.ReopenCount != 1 || len(tl.Entries) != 3 {
+			t.Fatalf("unexpected timeline: %+v", tl)
+		}
+		if tl.Entries[0].State != diff.StateOpen || tl.Entries[1].State != diff.StateFixed || tl.Entries[2].State != diff.StateReopened {
+			t.Errorf("states: %+v", tl.Entries)
+		}
+		if strconv.FormatInt(tl.Entries[0].ScanID, 10) != s1.ID || strconv.FormatInt(tl.Entries[1].ScanID, 10) != s3.ID || strconv.FormatInt(tl.Entries[2].ScanID, 10) != s4.ID {
+			t.Errorf("scan IDs: %+v", tl.Entries)
+		}
+		if empty := m.FindingTimelines(s4.ID, nil); len(empty) != 0 {
+			t.Errorf("empty findingIDs: %+v", empty)
+		}
+		if missing := m.FindingTimelines("999", []string{fid}); len(missing) != 0 {
+			t.Errorf("unknown scan: %+v", missing)
+		}
+		if withStore {
+			m.Store.Close()
+			// If the store fails after scans are in memory, timelines still fall back to memory.
+			if fallback := m.FindingTimelines(s4.ID, []string{fid}); !fallback[fid].Reopened || len(fallback[fid].Entries) != 3 {
+				t.Errorf("closed store fallback: %+v", fallback)
+			}
+		}
+	}
+
+	t.Run("with store", func(t *testing.T) { runLifecycle(t, true) })
+	t.Run("in memory", func(t *testing.T) { runLifecycle(t, false) })
 }

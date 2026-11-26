@@ -71,6 +71,7 @@ Usage:
   nuqs scan [flags] <target>...        scan targets (IP, CIDR, range like 10.0.0.1-20, or hostname)
   nuqs history [-n 20]                 list saved scans, newest first
   nuqs show [--json] <id>              print a saved scan again
+  nuqs show --finding <id> [scan-id]   timeline of one finding across scans
   nuqs diff [--json] <old> [new]       what changed between two saved scans
   nuqs serve [flags]                   start the web UI and JSON API server
   nuqs user reset-password <username>  issue a one-time password reset code
@@ -338,19 +339,53 @@ func (a *App) history(args []string) int {
 	return ExitOK
 }
 
-// show prints a saved scan the same way "nuqs scan" did.
+// show prints a saved scan the same way "nuqs scan" did, or one finding's
+// timeline across scans when --finding is given.
 func (a *App) show(args []string) int {
 	fs := flag.NewFlagSet("show", flag.ContinueOnError)
 	fs.SetOutput(a.Stderr)
-	asJSON := fs.Bool("json", false, "print the report as JSON")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return ExitOK
+	asJSON := fs.Bool("json", false, "print the report or timeline as JSON")
+	finding := fs.String("finding", "", "show one finding's timeline across scans of the same targets and ports (finding ID or check ID)")
+	fs.Usage = func() {
+		fmt.Fprintln(a.Stderr, "Usage: nuqs show [--json] [--finding <id>] [scan-id]")
+		fs.PrintDefaults()
+	}
+
+	// Accept flags before or after an optional scan ID, just like "nuqs scan".
+	var positional []string
+	rest := args
+	for {
+		if err := fs.Parse(rest); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return ExitOK
+			}
+			return ExitUsage
 		}
+		if fs.NArg() == 0 {
+			break
+		}
+		positional = append(positional, fs.Arg(0))
+		rest = fs.Args()[1:]
+	}
+	if strings.TrimSpace(*finding) != "" {
+		return a.showFinding(strings.TrimSpace(*finding), positional, *asJSON)
+	}
+	findingSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "finding" {
+			findingSet = true
+		}
+	})
+	if findingSet {
+		fmt.Fprintln(a.Stderr, "Usage: nuqs show [--json] --finding <id> [scan-id]")
 		return ExitUsage
 	}
-	id, err := strconv.ParseInt(fs.Arg(0), 10, 64)
-	if fs.NArg() != 1 || err != nil {
+	if len(positional) != 1 {
+		fmt.Fprintln(a.Stderr, "Usage: nuqs show [--json] <id>, the IDs are in nuqs history")
+		return ExitUsage
+	}
+	id, err := strconv.ParseInt(positional[0], 10, 64)
+	if err != nil {
 		fmt.Fprintln(a.Stderr, "Usage: nuqs show [--json] <id>, the IDs are in nuqs history")
 		return ExitUsage
 	}
@@ -376,6 +411,133 @@ func (a *App) show(args []string) int {
 		return ExitError
 	}
 	return ExitOK
+}
+
+func (a *App) showFinding(query string, positional []string, asJSON bool) int {
+	var scanID int64
+	hasScanID := len(positional) == 1
+	if len(positional) > 1 {
+		fmt.Fprintln(a.Stderr, "Usage: nuqs show [--json] --finding <id> [scan-id]")
+		return ExitUsage
+	}
+	if hasScanID {
+		var err error
+		scanID, err = strconv.ParseInt(positional[0], 10, 64)
+		if err != nil {
+			fmt.Fprintln(a.Stderr, "Usage: nuqs show [--json] --finding <id> [scan-id]")
+			return ExitUsage
+		}
+	}
+
+	st, err := store.Open(a.dataDir())
+	if err != nil {
+		fmt.Fprintln(a.Stderr, "error:", err)
+		return ExitError
+	}
+	defer func() { _ = st.Close() }()
+
+	var runs []store.Run
+	var findingID string
+	if hasScanID {
+		runs, err = st.SameScopeRuns(scanID)
+		if err != nil {
+			fmt.Fprintln(a.Stderr, "error:", err)
+			return ExitError
+		}
+		var matches []string
+		findingID, matches = resolveFindingInRuns(query, runs)
+		if findingID == "" {
+			a.reportFindingLookupError(query, matches)
+			return ExitError
+		}
+	} else {
+		found, err := st.FindFindingRuns(query)
+		if err != nil {
+			fmt.Fprintln(a.Stderr, "error:", err)
+			return ExitError
+		}
+		var anchorID int64
+		var matches []string
+		for _, m := range found {
+			if m.FindingID == query {
+				findingID, anchorID = m.FindingID, m.LatestRunID
+				break
+			}
+			matches = append(matches, m.FindingID)
+		}
+		if findingID == "" && len(found) == 1 {
+			findingID, anchorID = found[0].FindingID, found[0].LatestRunID
+		}
+		if findingID == "" {
+			a.reportFindingLookupError(query, matches)
+			return ExitError
+		}
+		runs, err = st.SameScopeRuns(anchorID)
+		if err != nil {
+			fmt.Fprintln(a.Stderr, "error:", err)
+			return ExitError
+		}
+	}
+
+	reports := make([]diff.ScanReport, 0, len(runs))
+	for _, r := range runs {
+		reports = append(reports, diff.ScanReport{
+			ID:      r.ID,
+			Name:    r.Name,
+			Started: r.Started,
+			Targets: r.Targets,
+			Report:  r.Report,
+		})
+	}
+	tl, ok := diff.BuildTimeline(findingID, reports)
+	if !ok {
+		fmt.Fprintf(a.Stderr, "error: no saved finding matching %q\n", query)
+		return ExitError
+	}
+	if asJSON {
+		err = output.TimelineJSON(a.Stdout, tl)
+	} else {
+		err = output.TimelineText(a.Stdout, tl)
+	}
+	if err != nil {
+		fmt.Fprintln(a.Stderr, "error writing timeline:", err)
+		return ExitError
+	}
+	return ExitOK
+}
+
+func resolveFindingInRuns(query string, runs []store.Run) (string, []string) {
+	seen := map[string]bool{}
+	var matches []string
+	for _, r := range runs {
+		if r.Report == nil {
+			continue
+		}
+		for _, f := range r.Report.Findings {
+			if f.ID == query {
+				return f.ID, nil
+			}
+			if f.CheckID == query && !seen[f.ID] {
+				seen[f.ID] = true
+				matches = append(matches, f.ID)
+			}
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	return "", matches
+}
+
+func (a *App) reportFindingLookupError(query string, matches []string) {
+	if len(matches) == 0 {
+		fmt.Fprintf(a.Stderr, "error: no saved finding matching %q\n", query)
+		return
+	}
+	fmt.Fprintf(a.Stderr, "error: more than one finding matches %q, pass the full finding ID:\n", query)
+	for _, id := range matches {
+		fmt.Fprintf(a.Stderr, "  nuqs show --finding '%s'\n", id)
+	}
 }
 
 // diff prints what changed between two saved scans. With one ID it compares

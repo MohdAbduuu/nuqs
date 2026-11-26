@@ -27,6 +27,7 @@ import (
 
 	"github.com/nuqs-org/nuqs/internal/auth"
 	"github.com/nuqs-org/nuqs/internal/check"
+	"github.com/nuqs-org/nuqs/internal/diff"
 	"github.com/nuqs-org/nuqs/internal/engine"
 	"github.com/nuqs-org/nuqs/internal/model"
 	"github.com/nuqs-org/nuqs/internal/output"
@@ -66,14 +67,16 @@ type Handler struct {
 // New parses the embedded templates and returns a ready web Handler.
 func New(svc *tools.Service, scans *tools.Scans, addr string) (*Handler, error) {
 	funcs := template.FuncMap{
-		"join":       strings.Join,
-		"joinInts":   joinInts,
-		"badgeClass": badgeClass,
-		"duration":   formatDuration,
-		"clock":      func(t time.Time) string { return t.Local().Format("Jan 2, 15:04:05") },
-		"lower":      strings.ToLower,
-		"whole":      func(f float64) int { return int(f) },
-		"initials":   userInitials,
+		"join":          strings.Join,
+		"joinInts":      joinInts,
+		"badgeClass":    badgeClass,
+		"duration":      formatDuration,
+		"clock":         func(t time.Time) string { return t.Local().Format("Jan 2, 15:04:05") },
+		"lower":         strings.ToLower,
+		"whole":         func(f float64) int { return int(f) },
+		"initials":      userInitials,
+		"timelineLabel": timelineStateLabel,
+		"timelineClass": timelineStateClass,
 	}
 	base, err := template.New("").Funcs(funcs).ParseFS(assets, "templates/layout.html", "templates/parts.html", "templates/checks_library.html")
 	if err != nil {
@@ -744,16 +747,26 @@ func (h *Handler) hostPage(w http.ResponseWriter, r *http.Request) {
 
 // --- One vulnerability, on every host that has it ---
 
+type findingInstance struct {
+	model.Finding
+	FirstSeen time.Time
+	LastSeen  time.Time
+	Reopened  bool
+}
+
 type findingData struct {
-	ScanID    string
-	ScanName  string
-	CheckID   string
-	Title     string
-	Severity  string
-	Fix       string
-	Looks     string // what the check looks at, like "ports 23 · telnet"
-	Instances []model.Finding
-	HostCount int
+	ScanID        string
+	CurrentScanID int64
+	ScanName      string
+	CheckID       string
+	Title         string
+	Severity      string
+	Fix           string
+	Looks         string // what the check looks at, like "ports 23 · telnet"
+	Instances     []findingInstance
+	Timelines     []diff.Timeline
+	ReopenedHosts []string
+	HostCount     int
 }
 
 func (h *Handler) findingPage(w http.ResponseWriter, r *http.Request) {
@@ -763,9 +776,11 @@ func (h *Handler) findingPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("check")
-	data := findingData{ScanID: s.ID, ScanName: s.Name, CheckID: id}
+	curID, _ := strconv.ParseInt(s.ID, 10, 64)
+	data := findingData{ScanID: s.ID, CurrentScanID: curID, ScanName: s.Name, CheckID: id}
 	filters := readFindingFilters(r.URL.Query())
 	hosts := map[string]bool{}
+	var findingIDs []string
 	for _, f := range s.Report.Findings {
 		if f.CheckID != id {
 			continue
@@ -774,7 +789,8 @@ func (h *Handler) findingPage(w http.ResponseWriter, r *http.Request) {
 			data.Title, data.Severity, data.Fix = f.Title, f.Severity.String(), f.Fix
 		}
 		if filters.matches(f) {
-			data.Instances = append(data.Instances, f)
+			data.Instances = append(data.Instances, findingInstance{Finding: f})
+			findingIDs = append(findingIDs, f.ID)
 			hosts[f.Host] = true
 		}
 	}
@@ -783,6 +799,21 @@ func (h *Handler) findingPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data.HostCount = len(hosts)
+	timelines := h.Scans.FindingTimelines(s.ID, findingIDs)
+	for i := range data.Instances {
+		inst := &data.Instances[i]
+		tl, ok := timelines[inst.ID]
+		if !ok {
+			continue
+		}
+		inst.FirstSeen = tl.FirstSeen
+		inst.LastSeen = tl.LastSeen
+		inst.Reopened = tl.Reopened
+		data.Timelines = append(data.Timelines, tl)
+		if tl.Reopened {
+			data.ReopenedHosts = append(data.ReopenedHosts, fmt.Sprintf("%s:%d", inst.Host, inst.Port))
+		}
+	}
 	back := "/scans/" + s.ID + "?tab=vulns"
 	if filters.Active() {
 		back += "&" + strings.TrimPrefix(filters.DetailQuery(), "?")
@@ -897,6 +928,32 @@ func badgeClass(level string) string {
 		return level
 	}
 	return "info"
+}
+
+func timelineStateLabel(st diff.State) string {
+	switch st {
+	case diff.StateOpen:
+		return "open"
+	case diff.StateReopened:
+		return "reopened"
+	case diff.StateFixed:
+		return "fixed"
+	case diff.StateNotChecked:
+		return "not checked"
+	case diff.StateAbsent:
+		return "not found"
+	default:
+		return string(st)
+	}
+}
+
+func timelineStateClass(st diff.State) string {
+	switch st {
+	case diff.StateOpen, diff.StateReopened, diff.StateFixed, diff.StateNotChecked, diff.StateAbsent:
+		return string(st)
+	default:
+		return "not_checked"
+	}
 }
 
 func severityRank(level string) int {

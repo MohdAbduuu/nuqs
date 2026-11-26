@@ -17,8 +17,10 @@ import (
 	"github.com/nuqs-org/nuqs/checks"
 	"github.com/nuqs-org/nuqs/checks/telnet"
 	"github.com/nuqs-org/nuqs/internal/check"
+	"github.com/nuqs-org/nuqs/internal/diff"
 	"github.com/nuqs-org/nuqs/internal/model"
 	"github.com/nuqs-org/nuqs/internal/nmap"
+	"github.com/nuqs-org/nuqs/internal/store"
 	"github.com/nuqs-org/nuqs/internal/tools"
 )
 
@@ -428,6 +430,70 @@ func TestHelpers(t *testing.T) {
 	}
 	if badgeClass("nope") != "info" || severityRank("nope") != 5 {
 		t.Error("unknown severities fall back to info")
+	}
+	for state, want := range map[diff.State]string{
+		diff.StateOpen:       "open",
+		diff.StateReopened:   "reopened",
+		diff.StateFixed:      "fixed",
+		diff.StateNotChecked: "not checked",
+		diff.StateAbsent:     "not found",
+		diff.State("other"):  "other",
+	} {
+		if got := timelineStateLabel(state); got != want {
+			t.Errorf("timelineStateLabel(%q) = %q, want %q", state, got, want)
+		}
+	}
+	if timelineStateClass(diff.StateReopened) != "reopened" || timelineStateClass(diff.State("other")) != "not_checked" {
+		t.Error("timelineStateClass")
+	}
+}
+
+func TestFindingTimelinePage(t *testing.T) {
+	const fixedXML = `<nmaprun><host><status state="up"/><address addr="127.0.0.1" addrtype="ipv4"/><ports></ports></host></nmaprun>`
+	const downXML = `<nmaprun></nmaprun>`
+
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	runner := &fakeRunner{xml: scanXML}
+	h := newTestWeb(t, runner)
+	h.Scans.Store = st
+
+	s1 := startAndWait(t, h, "First")
+	runner.xml = fixedXML
+	s2 := startAndWait(t, h, "Fixed")
+	runner.xml = downXML
+	s3 := startAndWait(t, h, "Host down")
+	runner.xml = scanXML
+	s4 := startAndWait(t, h, "Reopened")
+
+	code, body := get(t, h, "/scans/"+s4.ID+"/vulns/telnet-open")
+	if code != http.StatusOK {
+		t.Fatalf("finding page: %d", code)
+	}
+	mustContain(t, "finding timeline", body,
+		"Came back after being fixed",
+		"reopened",
+		"came back after fix",
+		"127.0.0.1:23",
+		"First seen",
+		"Last seen",
+		"Timeline across scans",
+		"seen in 2 of 4 scans, came back after being fixed",
+		`href="/scans/`+s1.ID+`"`,
+		`href="/scans/`+s2.ID+`"`,
+		`href="/scans/`+s3.ID+`"`,
+		`href="/scans/`+s4.ID+`"`,
+		"(this scan)",
+		diff.PortClosed,
+		"host didn&#39;t answer",
+		"not checked",
+	)
+	if strings.Contains(body, xss) {
+		t.Error("finding timeline page must escape untrusted evidence/banners")
 	}
 }
 

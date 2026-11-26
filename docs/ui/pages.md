@@ -62,7 +62,7 @@ PDF or spreadsheet-ready CSV.
 - Title, severity and **confirmed** or **inferred**
 - **What we saw:** the evidence, exactly as the server sent it
 - **How to fix it:** the fix text, and the CVE links if there are any
-- First seen and last seen
+- First seen, last seen and a timeline across scans of the same targets and ports (open, fixed, not checked), flagging findings that came back after being fixed
 - A **Check again** button that re-runs just this check on just this host
 
 ### History (W2)

@@ -297,3 +297,16 @@ dialog::backdrop {background:#00000066}
 @media(max-width:740px){
   .userMobileLabel {display:block;margin-bottom:4px;color:var(--sub);font-size:12px}
 }
+
+/* Finding timeline across scans. */
+.timelineCard {gap:12px}
+.timelineCard .tableCard {box-shadow:none;border:.5px solid var(--rule)}
+.tlHead {display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.tlHead h3 {font-size:14px}
+.tlStatus {display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:500;white-space:nowrap}
+.tlStatus::before {content:"";width:8px;height:8px;border-radius:50%;background:var(--sub)}
+.tlStatus.open::before {background:var(--medium)}
+.tlStatus.reopened {color:var(--high);font-weight:600}
+.tlStatus.reopened::before {background:var(--critical)}
+.tlStatus.fixed::before {background:var(--ok)}
+.tlStatus.not_checked::before,.tlStatus.not_found::before {background:var(--sub)}

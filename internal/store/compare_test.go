@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/nuqs-org/nuqs/internal/model"
 )
 
 // save stores a finished scan of targets with these port settings, started
@@ -82,5 +84,84 @@ func TestSeen(t *testing.T) {
 	}
 	if seen, err := s.Seen(nil); err != nil || len(seen) != 0 {
 		t.Errorf("no IDs: %v %v", seen, err)
+	}
+}
+
+func TestSameScopeRuns(t *testing.T) {
+	s, _ := open(t)
+	ab := []string{"10.0.0.1", "10.0.0.2"}
+	later := save(t, s, ab, `{"ports":"22,23"}`, Completed, "", 4)
+	save(t, s, ab, `{"ports":"22"}`, Completed, "", 1)                      // different ports
+	save(t, s, []string{"10.0.0.1"}, `{"ports":"22,23"}`, Completed, "", 2) // different targets
+	stopped := save(t, s, ab, `{"ports":"22,23"}`, Stopped, "", 3)          // stopped early
+	save(t, s, ab, `{"ports":"22,23"}`, Completed, "nmap died", 5)          // errored
+	earlier := save(t, s, []string{"10.0.0.2", "10.0.0.1"}, `{"ports":"22, 23"}`, Completed, "", 0)
+
+	runs, err := s.SameScopeRuns(later)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 2 || runs[0].ID != earlier || runs[1].ID != later || runs[0].Report == nil || runs[1].Report == nil {
+		t.Fatalf("want [earlier=%d, later=%d], got %+v", earlier, later, runs)
+	}
+
+	// Viewing a stopped scan with a report includes it in chronological position.
+	withStopped, err := s.SameScopeRuns(stopped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(withStopped) != 3 || withStopped[0].ID != earlier || withStopped[1].ID != stopped || withStopped[2].ID != later {
+		t.Fatalf("stopped anchor should appear chronologically: %+v", withStopped)
+	}
+
+	if _, err := s.SameScopeRuns(999); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown scan: got %v, want ErrNotFound", err)
+	}
+}
+
+func TestFindFindingRuns(t *testing.T) {
+	s, _ := open(t)
+	ab := []string{"10.0.0.1", "10.0.0.2"}
+	first := save(t, s, ab, `{"ports":"23"}`, Completed, "", 0)
+	latest := save(t, s, ab, `{"ports":"23"}`, Completed, "", 2)
+	save(t, s, ab, `{"ports":"23"}`, Stopped, "", 3)              // ignored
+	save(t, s, ab, `{"ports":"23"}`, Completed, "nmap failed", 4) // ignored
+
+	// Add a second host with the same check_id in a newer scan.
+	rep2 := sampleReport()
+	secondID := model.FindingID("10.0.0.9", "telnet-open", 23, "tcp")
+	rep2.Findings = []model.Finding{{
+		ID: secondID, CheckID: "telnet-open", Title: "Telnet", Severity: model.Medium,
+		Confidence: model.Confirmed, Host: "10.0.0.9", Port: 23, Protocol: "tcp",
+	}}
+	newest := Run{Name: "other", Kind: "cli", Targets: []string{"10.0.0.9"}, Status: Completed, Started: at.Add(5 * time.Hour), Report: rep2}
+	if err := s.Save(&newest); err != nil {
+		t.Fatal(err)
+	}
+
+	// Exact finding ID returns the single match with its newest completed run.
+	firstID := model.FindingID("10.0.0.2", "telnet-open", 23, "tcp")
+	matches, err := s.FindFindingRuns(firstID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 || matches[0].FindingID != firstID || matches[0].LatestRunID != latest || matches[0].LatestRunID == first {
+		t.Fatalf("exact match: %+v (first=%d latest=%d)", matches, first, latest)
+	}
+
+	// Check ID returns both distinct finding IDs, newest first, deduplicated.
+	byCheck, err := s.FindFindingRuns("telnet-open")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byCheck) != 2 || byCheck[0].FindingID != secondID || byCheck[0].LatestRunID != newest.ID || byCheck[1].FindingID != firstID || byCheck[1].LatestRunID != latest {
+		t.Fatalf("by check_id: %+v", byCheck)
+	}
+
+	if got, err := s.FindFindingRuns("   "); err != nil || len(got) != 0 {
+		t.Errorf("empty query: %v %v", got, err)
+	}
+	if got, err := s.FindFindingRuns("does-not-exist"); err != nil || len(got) != 0 {
+		t.Errorf("unknown query: %v %v", got, err)
 	}
 }

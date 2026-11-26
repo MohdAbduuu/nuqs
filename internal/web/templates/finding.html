@@ -1,10 +1,16 @@
-<!-- One vulnerability: what it is, how to fix it, and every host that has it with what we saw there. -->
+<!-- One vulnerability: what it is, how to fix it, affected hosts and its timeline across scans. -->
 {{define "content"}}{{with .Data}}
 <section class="page">
   <div class="pageHead">
-    <p><span class="badge {{badgeClass .Severity}}">{{.Severity}}</span> <span class="mono small">{{.CheckID}}</span></p>
+    <p><span class="badge {{badgeClass .Severity}}">{{.Severity}}</span>{{if .ReopenedHosts}} <span class="badge high">reopened</span>{{end}} <span class="mono small">{{.CheckID}}</span></p>
     <h1>{{.Title}}</h1>
   </div>
+  {{if .ReopenedHosts}}
+  <div class="card warnCard" role="status">
+    <h2>Came back after being fixed</h2>
+    <p>This finding was fixed and later came back on <span class="mono">{{join .ReopenedHosts ", "}}</span>.</p>
+  </div>
+  {{end}}
   <div class="card">
     <h2>How to fix it</h2>
     <p>{{.Fix}}</p>
@@ -17,12 +23,40 @@
     <table class="list">
       <thead><tr><th>Host</th><th class="wide">What we saw</th><th>Confidence</th></tr></thead>
       <tbody>{{range .Instances}}<tr>
-        <td><a class="mono" href="/scans/{{$.Data.ScanID}}/hosts/{{.Host}}">{{.Host}}:{{.Port}}</a></td>
+        <td>
+          <a class="mono" href="/scans/{{$.Data.ScanID}}/hosts/{{.Host}}">{{.Host}}:{{.Port}}</a>{{if .Reopened}} <span class="badge high">reopened</span>{{end}}
+          {{if not .FirstSeen.IsZero}}<small>First seen {{clock .FirstSeen}}{{if not (.LastSeen.Equal .FirstSeen)}} · Last seen {{clock .LastSeen}}{{end}}</small>{{end}}
+        </td>
         <td>{{.Evidence}}</td>
         <td><span title="{{if eq .Confidence "confirmed"}}We saw this happen.{{else}}Worked out from the version number or the port, not seen directly.{{end}}">{{.Confidence}}</span></td>
       </tr>{{end}}</tbody>
     </table>
   </div>
   {{else}}<p class="emptyRow">No findings match these filters.</p>{{end}}
+  {{if .Timelines}}
+  <h2 class="groupTitle">Timeline across scans</h2>
+  {{range .Timelines}}
+  <div class="card timelineCard">
+    <div class="tlHead">
+      <div>
+        <h3 class="mono">{{.Host}}:{{.Port}}/{{.Protocol}}</h3>
+        <p class="small subtle">{{.Summary}}</p>
+      </div>
+      {{if .Reopened}}<span class="badge high">came back after fix</span>{{end}}
+    </div>
+    <div class="tableCard">
+      <table class="list">
+        <thead><tr><th>Scan</th><th>Started</th><th>Status</th><th class="wide">Details</th></tr></thead>
+        <tbody>{{range .Entries}}<tr>
+          <td><a class="mono" href="/scans/{{.ScanID}}">Scan {{.ScanID}}</a>{{if eq .ScanID $.Data.CurrentScanID}} <span class="subtle small">(this scan)</span>{{end}}</td>
+          <td class="mono small">{{clock .Started}}</td>
+          <td><span class="tlStatus {{timelineClass .State}}">{{timelineLabel .State}}</span></td>
+          <td>{{if eq .State "reopened"}}{{.Evidence}}{{if .Evidence}} · {{end}}<span class="subtle">came back after being fixed</span>{{else if eq .State "open"}}{{.Evidence}}{{else if eq .State "not_found"}}<span class="subtle">not present before first seen</span>{{else}}{{.Reason}}{{end}}</td>
+        </tr>{{end}}</tbody>
+      </table>
+    </div>
+  </div>
+  {{end}}
+  {{end}}
 </section>
 {{end}}{{end}}
