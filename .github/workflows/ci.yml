@@ -24,23 +24,13 @@ jobs:
           go-version-file: go.mod
 
       - name: Formatting
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "These files need gofmt:"; echo "$unformatted"; exit 1
-          fi
+        run: make fmt-check
 
       - name: Vet
-        run: go vet ./... && go vet -tags integration ./...
+        run: make vet
 
-      - name: Unit tests
-        run: go test -race -coverprofile=coverage.out ./...
-
-      - name: Coverage must stay at 85% or more
-        run: |
-          total=$(go tool cover -func=coverage.out | awk '/^total:/ {sub("%","",$3); print $3}')
-          echo "Total coverage: ${total}%"
-          awk -v t="$total" 'BEGIN { exit (t >= 85) ? 0 : 1 }' || { echo "Coverage dropped below 85%"; exit 1; }
+      - name: Unit tests and coverage
+        run: make test
 
   lint:
     name: Lint (and doc comments)
@@ -53,6 +43,9 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15
+          install-only: true
+      - name: Lint
+        run: make lint
 
   fuzz:
     name: Fuzz ${{ matrix.pkg }}
@@ -85,7 +78,7 @@ jobs:
       - name: Install Nmap
         run: sudo apt-get update && sudo apt-get install -y nmap
       - name: Run
-        run: go test -tags integration -v -count=1 ./test/integration
+        run: make integration
 
   lab:
     name: Lab
@@ -98,7 +91,7 @@ jobs:
           go-version-file: go.mod
       - name: Install Nmap
         run: sudo apt-get update && sudo apt-get install -y nmap
-      - run: ./scripts/lab.sh
+      - run: make lab
         env:
           LAB_OUT: lab-report.json
       # When the report changes, download this, check it, and commit it as lab/expected-report.json.
@@ -118,7 +111,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Build
-        run: go build -ldflags "-X main.version=${GITHUB_SHA::7}" -o nuqs ./cmd/nuqs
+        run: make build VERSION=${GITHUB_SHA::7}
       - name: Smoke test
         run: |
           ./nuqs version
@@ -152,12 +145,12 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - run: go build -o nuqs ./cmd/nuqs
+      - run: make build
       - run: |
           ./nuqs version
           ./nuqs checks
           ./nuqs scan -- -oN && exit 1 || echo "bad target rejected, good"
-      - run: go test ./...
+      - run: make test
 
   vulncheck:
     name: Known vulnerabilities (govulncheck)
