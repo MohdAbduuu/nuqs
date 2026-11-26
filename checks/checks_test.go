@@ -10,10 +10,17 @@ import (
 	"github.com/nuqs-org/nuqs/internal/check"
 )
 
-// Every built-in check must be valid (unique ID, title, fix and so on).
+// Every built-in check must be valid (unique ID, title, description, fix, references and so on).
 func TestAllValid(t *testing.T) {
-	if err := check.Validate(All()); err != nil {
+	all := All()
+	if err := check.Validate(all); err != nil {
 		t.Fatal(err)
+	}
+	for _, c := range all {
+		in := c.Info()
+		if len(in.References) == 0 {
+			t.Errorf("check %q: built-in check must include at least one reference link", in.ID)
+		}
 	}
 }
 

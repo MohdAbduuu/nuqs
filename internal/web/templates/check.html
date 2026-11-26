@@ -1,0 +1,42 @@
+<!-- One check in the library: full description, fix, where it runs and sources. -->
+{{define "content"}}{{with .Data}}
+<section class="page">
+  <div class="pageHead">
+    <p><span class="badge {{badgeClass .Severity}}">{{.Severity}}</span> <span class="mono small">{{.ID}}</span></p>
+    <h1>{{.Title}}</h1>
+  </div>
+  <div class="card">
+    <h2>Why it matters</h2>
+    {{range lines .Description}}<p>{{.}}</p>{{end}}
+  </div>
+  <div class="card">
+    <h2>How to fix it</h2>
+    <p>{{.Fix}}</p>
+    <button type="button" class="copy" data-fix="{{.Fix}}">Copy fix</button>
+  </div>
+  <div class="card">
+    <h2>Where it runs</h2>
+    <dl class="metaList">
+      <div>
+        <dt>Services</dt>
+        <dd class="mono">{{if .Services}}{{join .Services ", "}}{{else if .Ports}}Matched by port{{else}}Any service{{end}}</dd>
+      </div>
+      <div>
+        <dt>Ports</dt>
+        <dd class="mono">{{if .Ports}}{{joinInts .Ports ", "}}{{else if .Services}}Any port running these services{{else}}Any port{{end}}</dd>
+      </div>
+    </dl>
+  </div>
+  {{if .References}}
+  <div class="card">
+    <h2>Sources</h2>
+    <ul class="refList">{{range .References}}<li>
+      <a href="{{.URL}}" target="_blank" rel="noopener noreferrer">
+        <span>{{.Title}}</span>
+        <span class="refHost">{{refHost .URL}} ↗</span>
+      </a>
+    </li>{{end}}</ul>
+  </div>
+  {{end}}
+</section>
+{{end}}{{end}}

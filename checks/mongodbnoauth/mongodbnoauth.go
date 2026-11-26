@@ -41,11 +41,17 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "mongodb-no-auth",
 		Title:            "MongoDB server has no password",
+		Description:      "Anyone who can reach this MongoDB port can read, change or wipe databases without logging in.\nOpen MongoDB servers are scanned and ransomed by automated bots within minutes of going online.",
 		Severity:         model.High,
 		Fix:              "Turn on access control (security.authorization: enabled in mongod.conf) and create users, or bind MongoDB to localhost only.",
 		RemediationTitle: "Enable MongoDB access control",
 		Ports:            []int{27017, 27018},
 		Services:         []string{"mongodb", "mongod"},
+		References: []check.Reference{
+			{Title: "MongoDB Security Checklist", URL: "https://www.mongodb.com/docs/manual/administration/security-checklist/"},
+			{Title: "MongoDB Enable Access Control", URL: "https://www.mongodb.com/docs/manual/tutorial/enable-authentication/"},
+			{Title: "CWE-306: Missing Authentication for Critical Function", URL: "https://cwe.mitre.org/data/definitions/306.html"},
+		},
 	}
 }
 

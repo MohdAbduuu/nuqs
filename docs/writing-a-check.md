@@ -25,12 +25,17 @@ type Check struct{}
 // Info describes the check.
 func (Check) Info() check.Info {
 	return check.Info{
-		ID:       "redis-no-auth",
-		Title:    "Redis server has no password",
-		Severity: model.High,
-		Fix:      "Set requirepass in redis.conf, or bind Redis to localhost only.",
-		Ports:    []int{6379},
-		Services: []string{"redis"},
+		ID:          "redis-no-auth",
+		Title:       "Redis server has no password",
+		Description: "Anyone who can reach this Redis port can read or alter keys without a password.\nRedis trusts every connected client unless authentication or ACLs are configured.",
+		Severity:    model.High,
+		Fix:         "Set requirepass in redis.conf, or bind Redis to localhost only.",
+		Ports:       []int{6379},
+		Services:    []string{"redis"},
+		References: []check.Reference{
+			{Title: "Redis Security Documentation", URL: "https://redis.io/docs/latest/operate/oss_and_stack/management/security/"},
+			{Title: "CWE-306: Missing Authentication for Critical Function", URL: "https://cwe.mitre.org/data/definitions/306.html"},
+		},
 	}
 }
 
@@ -83,7 +88,8 @@ If you forget step 2 or 3, `checks/checks_test.go` fails and tells you.
 ## Rules for checks
 
 - **Be safe.** Never change anything on the target, never send exploits. Read only.
-- **Return evidence.** Say what you saw in plain words, like "sent PING without a password and got +PONG".
+- **Explain why it matters and cite sources.** Fill in `Description` in plain words (the first line appears on Check Library cards; full paragraphs appear on the check and finding detail pages) and add `References` with official docs, RFCs, CWEs or CVE links.
+- **Return evidence.** Say what you saw in plain words, like "sent PING without a password and got +PONG". Separate multiple lines of evidence with `\n`.
 - **Say how sure you are.** If you saw the problem yourself (a login worked, a header is missing), leave `Confidence` empty, it counts as `confirmed`. If you only know it from a version number, or Nmap only guessed the service from the port (`t.Service.Guessed`), set `Confidence: model.Inferred`. Distros often patch old versions, and guesses can be wrong.
 - **Errors aren't findings.** If you couldn't check, return an error. Only return a Result when you're sure.
 - **Respect ctx.** Use `DialContext` and set deadlines. The engine uses ctx for timeouts.

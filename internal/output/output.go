@@ -42,7 +42,7 @@ func Text(w io.Writer, r *engine.Report) error {
 		p.f("\nDetails:\n")
 		for _, f := range r.Findings {
 			p.f("  [%s] %s on %s:%d (%s)\n", strings.ToUpper(f.Severity.String()), f.Title, f.Host, f.Port, confidence(f))
-			p.f("    Evidence: %s\n", f.Evidence)
+			p.f("    Evidence: %s\n", strings.ReplaceAll(f.Evidence, "\n", "\n              "))
 			p.f("    Fix: %s\n", f.Fix)
 		}
 	}

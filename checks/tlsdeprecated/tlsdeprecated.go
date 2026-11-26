@@ -41,11 +41,17 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "tls-deprecated-protocols",
 		Title:            "Server accepts old TLS versions",
+		Description:      "The server still accepts TLS 1.0 or TLS 1.1, which are retired and lack modern encryption.\nTLS 1.0 is vulnerable to BEAST (CVE-2011-3389), and both versions rely on weak ciphers that modern browsers have dropped.",
 		Severity:         model.Medium,
 		Fix:              "Allow only TLS 1.2 and 1.3. In nginx set ssl_protocols TLSv1.2 TLSv1.3; in Apache set SSLProtocol -all +TLSv1.2 +TLSv1.3.",
 		RemediationTitle: "Disable older TLS versions",
 		Ports:            []int{443, 465, 636, 993, 995, 8443},
 		Services:         append([]string{"http", "http-alt", "http-proxy"}, tlsNames...),
+		References: []check.Reference{
+			{Title: "RFC 8996: Deprecating TLS 1.0 and TLS 1.1", URL: "https://datatracker.ietf.org/doc/html/rfc8996"},
+			{Title: "CVE-2011-3389: TLS 1.0 CBC IV Attack (BEAST)", URL: "https://nvd.nist.gov/vuln/detail/CVE-2011-3389"},
+			{Title: "CWE-327: Use of a Broken or Risky Cryptographic Algorithm", URL: "https://cwe.mitre.org/data/definitions/327.html"},
+		},
 	}
 }
 

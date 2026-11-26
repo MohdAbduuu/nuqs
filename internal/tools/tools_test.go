@@ -25,12 +25,14 @@ type portCheck struct{}
 
 func (portCheck) Info() check.Info {
 	return check.Info{
-		ID:       "redis-no-auth",
-		Title:    "Redis has no password",
-		Severity: model.High,
-		Fix:      "Set requirepass.",
-		Ports:    []int{6379},
-		Services: []string{"redis"},
+		ID:          "redis-no-auth",
+		Title:       "Redis has no password",
+		Description: "Open Redis lets anyone read or alter cached keys.\nAdd authentication before exposing Redis.",
+		Severity:    model.High,
+		Fix:         "Set requirepass.",
+		Ports:       []int{6379},
+		Services:    []string{"redis"},
+		References:  []check.Reference{{Title: "Redis Security", URL: "https://redis.io/docs/latest/operate/oss_and_stack/management/security/"}},
 	}
 }
 
@@ -67,8 +69,14 @@ func TestListFilterAndStatus(t *testing.T) {
 	svc.Checks = func() []check.Check { return []check.Check{telnet.Check{}, portCheck{}} }
 
 	all := svc.ListChecks()
-	if len(all) != 2 || all[0].ID != "telnet-open" {
+	if len(all) != 2 || all[0].ID != "telnet-open" || all[0].Description == "" || len(all[0].References) == 0 {
 		t.Fatalf("unexpected checks: %+v", all)
+	}
+	if got, ok := svc.CheckByID("redis-no-auth"); !ok || got.Title != "Redis has no password" || len(got.References) != 1 {
+		t.Fatalf("CheckByID redis-no-auth = %+v %v", got, ok)
+	}
+	if _, ok := svc.CheckByID("missing"); ok {
+		t.Fatal("CheckByID should return false for unknown ID")
 	}
 	if len(svc.FilterChecks("")) != 2 {
 		t.Fatal("empty filter should return all checks")
@@ -78,6 +86,9 @@ func TestListFilterAndStatus(t *testing.T) {
 	}
 	if len(svc.FilterChecks("telnet")) != 1 {
 		t.Fatal("filter by service/id should match telnet")
+	}
+	if len(svc.FilterChecks("cached keys")) != 1 {
+		t.Fatal("filter by description should match portCheck")
 	}
 	if len(svc.FilterChecks("medium")) != 1 {
 		t.Fatal("filter by severity should match telnet")

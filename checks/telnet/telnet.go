@@ -22,10 +22,16 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "telnet-open",
 		Title:            "Unencrypted Telnet server",
+		Description:      "Telnet has no encryption, so everything typed in a session crosses the network in the clear.\nSomeone on the same Wi-Fi or LAN can capture logins, see every command and take over the session.",
 		Severity:         model.Medium,
 		Fix:              "Turn off Telnet and use SSH instead. Telnet sends passwords as plain text, so anyone on the network can read them.",
 		RemediationTitle: "Replace Telnet with SSH",
 		Services:         []string{"telnet"},
+		References: []check.Reference{
+			{Title: "CWE-319: Cleartext Transmission of Sensitive Information", URL: "https://cwe.mitre.org/data/definitions/319.html"},
+			{Title: "RFC 854: Telnet Protocol Specification", URL: "https://datatracker.ietf.org/doc/html/rfc854"},
+			{Title: "RFC 4251: The Secure Shell (SSH) Protocol Architecture", URL: "https://datatracker.ietf.org/doc/html/rfc4251"},
+		},
 	}
 }
 

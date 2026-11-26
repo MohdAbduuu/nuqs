@@ -1,8 +1,8 @@
-<!-- One vulnerability: what it is, how to fix it, affected hosts and its timeline across scans. -->
+<!-- One vulnerability: why it matters, how to fix it, references, affected hosts and its timeline across scans. -->
 {{define "content"}}{{with .Data}}
 <section class="page">
   <div class="pageHead">
-    <p><span class="badge {{badgeClass .Severity}}">{{.Severity}}</span>{{if .ReopenedHosts}} <span class="badge high">reopened</span>{{end}} <span class="mono small">{{.CheckID}}</span></p>
+    <p><span class="badge {{badgeClass .Severity}}">{{.Severity}}</span>{{if .ReopenedHosts}} <span class="badge high">reopened</span>{{end}} {{if .HasCheck}}<a class="mono small checkLink" href="/checks/{{.CheckID}}">{{.CheckID}}</a>{{else}}<span class="mono small">{{.CheckID}}</span>{{end}}</p>
     <h1>{{.Title}}</h1>
   </div>
   {{if .ReopenedHosts}}
@@ -11,12 +11,29 @@
     <p>This finding was fixed and later came back on <span class="mono">{{join .ReopenedHosts ", "}}</span>.</p>
   </div>
   {{end}}
+  {{if .Description}}
+  <div class="card">
+    <h2>Why it matters</h2>
+    {{range lines .Description}}<p>{{.}}</p>{{end}}
+  </div>
+  {{end}}
   <div class="card">
     <h2>How to fix it</h2>
     <p>{{.Fix}}</p>
     <button type="button" class="copy" data-fix="{{.Fix}}">Copy fix</button>
     {{if .Looks}}<p class="small subtle">This check looks at {{.Looks}}.</p>{{end}}
   </div>
+  {{if .References}}
+  <div class="card">
+    <h2>References</h2>
+    <ul class="refList">{{range .References}}<li>
+      <a href="{{.URL}}" target="_blank" rel="noopener noreferrer">
+        <span>{{.Title}}</span>
+        <span class="refHost">{{refHost .URL}} ↗</span>
+      </a>
+    </li>{{end}}</ul>
+  </div>
+  {{end}}
   {{if .Instances}}
   <h2 class="groupTitle">Found on {{.HostCount}} {{if eq .HostCount 1}}host{{else}}hosts{{end}}</h2>
   <div class="tableCard">
@@ -25,9 +42,13 @@
       <tbody>{{range .Instances}}<tr>
         <td>
           <a class="mono" href="/scans/{{$.Data.ScanID}}/hosts/{{.Host}}">{{.Host}}:{{.Port}}</a>{{if .Reopened}} <span class="badge high">reopened</span>{{end}}
+          {{if .Hostnames}}<small>{{join .Hostnames ", "}}</small>{{end}}
           {{if not .FirstSeen.IsZero}}<small>First seen {{clock .FirstSeen}}{{if not (.LastSeen.Equal .FirstSeen)}} · Last seen {{clock .LastSeen}}{{end}}</small>{{end}}
         </td>
-        <td>{{.Evidence}}</td>
+        <td>
+          <div class="evidenceLines">{{range .EvidenceLines}}<p>{{.}}</p>{{end}}</div>
+          {{if .ServiceDetail}}<small class="mono evidenceMeta">{{.ServiceDetail}}</small>{{end}}
+        </td>
         <td><span title="{{if eq .Confidence "confirmed"}}We saw this happen.{{else}}Worked out from the version number or the port, not seen directly.{{end}}">{{.Confidence}}</span></td>
       </tr>{{end}}</tbody>
     </table>

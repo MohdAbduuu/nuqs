@@ -74,7 +74,7 @@ func TestStatusAndChecksEndpoints(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
 			t.Fatalf("invalid json: %v", err)
 		}
-		if len(items) != 1 || items[0].ID != "telnet-open" {
+		if len(items) != 1 || items[0].ID != "telnet-open" || items[0].Description == "" || len(items[0].References) == 0 {
 			t.Fatalf("unexpected checks: %+v", items)
 		}
 	})

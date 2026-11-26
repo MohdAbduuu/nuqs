@@ -37,6 +37,7 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "ssh-password-auth",
 		Title:            "SSH server allows password login",
+		Description:      "This SSH server accepts password logins, which automated bots constantly try to guess.\nReused or weak passwords are one of the most common ways attackers break into servers over SSH.",
 		Severity:         model.Medium,
 		Fix:              "Use SSH keys and set PasswordAuthentication no in sshd_config. Passwords can be guessed, keys can't.",
 		RemediationID:    "ssh-public-key-only",
@@ -44,6 +45,11 @@ func (Check) Info() check.Info {
 		RemediationFix:   check.SSHKeyOnlyFix,
 		Ports:            []int{22},
 		Services:         []string{"ssh"},
+		References: []check.Reference{
+			{Title: "OpenSSH sshd_config Manual", URL: "https://man.openbsd.org/sshd_config"},
+			{Title: "CWE-307: Improper Restriction of Excessive Authentication Attempts", URL: "https://cwe.mitre.org/data/definitions/307.html"},
+			{Title: "Mozilla OpenSSH Guidelines", URL: "https://infosec.mozilla.org/guidelines/openssh.html"},
+		},
 	}
 }
 

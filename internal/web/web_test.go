@@ -57,7 +57,16 @@ func (f *fakeRunner) Run(ctx context.Context, _ []string, out io.Writer) error {
 type brokenCheck struct{}
 
 func (brokenCheck) Info() check.Info {
-	return check.Info{ID: "ftp-anonymous-login", Title: "FTP allows anonymous login", Severity: model.High, Fix: "Turn it off.", Ports: []int{21}, Services: []string{"ftp"}}
+	return check.Info{
+		ID:          "ftp-anonymous-login",
+		Title:       "FTP allows anonymous login",
+		Description: "Anonymous FTP lets anyone sign in without a password.\nDisable anonymous login unless public file sharing is intentional.",
+		Severity:    model.High,
+		Fix:         "Turn it off.",
+		Ports:       []int{21},
+		Services:    []string{"ftp"},
+		References:  []check.Reference{{Title: "CWE-287", URL: "https://cwe.mitre.org/data/definitions/287.html"}},
+	}
 }
 func (brokenCheck) Run(context.Context, check.Target) (*check.Result, error) {
 	return nil, errors.New("banner failed: " + xss)
@@ -155,13 +164,31 @@ func TestEmptyPages(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("/checks: %d", code)
 	}
-	mustContain(t, "/checks", body, `hx-get="/partials/checks"`, "telnet-open", "ftp-anonymous-login")
+	mustContain(t, "/checks", body, `hx-get="/partials/checks"`, `href="/checks/telnet-open"`, `href="/checks/ftp-anonymous-login"`,
+		"Telnet has no encryption, so everything typed in a session crosses the network in the clear.")
+	if strings.Contains(body, "Turn off Telnet and use SSH instead.") {
+		t.Error("/checks cards should stay short and not show the full fix text")
+	}
+	if strings.Contains(body, "Someone on the same Wi-Fi or LAN") {
+		t.Error("/checks cards should only show the first line of the description")
+	}
 	_, body = get(t, h, "/partials/checks?q=ftp")
 	if !strings.Contains(body, "ftp-anonymous-login") || strings.Contains(body, "telnet-open") {
 		t.Errorf("search didn't filter: %s", body)
 	}
 	_, body = get(t, h, "/partials/checks?q=nothing-like-this")
 	mustContain(t, "empty search", body, "No matching checks.")
+
+	code, body = get(t, h, "/checks/telnet-open")
+	if code != http.StatusOK {
+		t.Fatalf("/checks/telnet-open: %d", code)
+	}
+	mustContain(t, "check detail", body, "Unencrypted Telnet server", "Why it matters",
+		"Someone on the same Wi-Fi or LAN", "How to fix it", "Turn off Telnet and use SSH instead.",
+		"Where it runs", "telnet", "Sources", "CWE-319", "cwe.mitre.org")
+	if code, _ := get(t, h, "/checks/does-not-exist"); code != http.StatusNotFound {
+		t.Errorf("unknown check detail: got %d, want 404", code)
+	}
 
 	for _, path := range []string{"/static/nuqs.css", "/static/htmx.min.js", "/static/app.js", "/static/nuqs-logo.png"} {
 		if code, _ := get(t, h, path); code != http.StatusOK {
@@ -244,7 +271,22 @@ func TestCompletedScanPages(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("finding page: %d", code)
 	}
-	mustContain(t, "finding page", body, "How to fix it", "Found on 1 host", "This check looks at telnet", `href="/scans/`+s.ID+`/hosts/127.0.0.1"`)
+	mustContain(t, "finding page", body, "Why it matters", "Someone on the same Wi-Fi or LAN",
+		"How to fix it", "References", "CWE-319", `href="/checks/telnet-open"`,
+		"Found on 1 host", "This check looks at telnet", `href="/scans/`+s.ID+`/hosts/127.0.0.1"`,
+		"port 23/tcp · telnet · &lt;script&gt;", "lab.local")
+	if strings.Contains(body, xss) {
+		t.Error("finding page must escape service product names in evidence metadata")
+	}
+
+	// Multi-line evidence renders each line separately on finding detail and host pages.
+	scanObj, _ := h.Scans.Get(s.ID)
+	scanObj.Report.Findings[0].Evidence = "line one observed\nline two detail"
+	code, body = get(t, h, "/scans/"+s.ID+"/vulns/telnet-open")
+	if code != http.StatusOK {
+		t.Fatalf("multiline finding page: %d", code)
+	}
+	mustContain(t, "multiline evidence", body, "<p>line one observed</p><p>line two detail</p>", "port 23/tcp · telnet")
 
 	for _, path := range []string{"/scans/99", "/scans/99/hosts/127.0.0.1", "/scans/" + s.ID + "/hosts/10.0.0.1", "/scans/" + s.ID + "/vulns/nope", "/scans/99/vulns/telnet-open", "/does-not-exist"} {
 		if code, _ := get(t, h, path); code != http.StatusNotFound {
@@ -445,6 +487,18 @@ func TestHelpers(t *testing.T) {
 	}
 	if timelineStateClass(diff.StateReopened) != "reopened" || timelineStateClass(diff.State("other")) != "not_checked" {
 		t.Error("timelineStateClass")
+	}
+	if firstLine("") != "" || firstLine("\n  first line  \nsecond") != "first line" {
+		t.Errorf("firstLine edge cases failed: %q %q", firstLine(""), firstLine("\n  first line  \nsecond"))
+	}
+	if got := refHost("https://www.openssh.com/legacy.html"); got != "openssh.com" {
+		t.Errorf("refHost strip www: %q", got)
+	}
+	if got := refHost("not-a-url"); got != "not-a-url" {
+		t.Errorf("refHost fallback: %q", got)
+	}
+	if got := formatServiceDetail(model.Service{Port: 443, Protocol: "tcp", Name: "https", Product: "nginx", Version: "1.24", Tunnel: "ssl", Guessed: true}); got != "port 443/tcp · https · nginx 1.24 · over TLS · guessed from port" {
+		t.Errorf("formatServiceDetail = %q", got)
 	}
 }
 

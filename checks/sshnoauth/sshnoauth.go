@@ -30,6 +30,7 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "ssh-no-auth",
 		Title:            "SSH server lets anyone log in without a password",
+		Description:      "This SSH server lets anyone log in without a password or key.\nAllowing the SSH \"none\" login method removes authentication completely, so anyone on the network can get a shell or tunnel traffic through the host.",
 		Severity:         model.Critical,
 		Fix:              "Make the SSH server ask for a key or password for every login (in OpenSSH, set PermitEmptyPasswords no). On a device where you can't change that, update its firmware or turn SSH off.",
 		RemediationID:    "ssh-public-key-only",
@@ -37,6 +38,11 @@ func (Check) Info() check.Info {
 		RemediationFix:   check.SSHKeyOnlyFix,
 		Ports:            []int{22},
 		Services:         []string{"ssh"},
+		References: []check.Reference{
+			{Title: "RFC 4252: The Secure Shell (SSH) Authentication Protocol", URL: "https://datatracker.ietf.org/doc/html/rfc4252"},
+			{Title: "OpenSSH sshd_config Manual", URL: "https://man.openbsd.org/sshd_config"},
+			{Title: "CWE-306: Missing Authentication for Critical Function", URL: "https://cwe.mitre.org/data/definitions/306.html"},
+		},
 	}
 }
 

@@ -11,7 +11,7 @@
     <article class="card finding">
       <header><span class="badge {{badgeClass .Severity.String}}">{{.Severity}}</span><h3><a href="/scans/{{$.Data.ScanID}}/vulns/{{.CheckID}}">{{.Title}}</a></h3></header>
       <p class="mono small">port {{.Port}}/{{.Protocol}} · {{.CheckID}}{{if .Confidence}} · <span title="{{if eq .Confidence "confirmed"}}We saw this happen.{{else}}Worked out from the version number or the port, not seen directly.{{end}}">{{.Confidence}}</span>{{end}}</p>
-      <p><b>What we saw</b> {{.Evidence}}</p>
+      <p><b>What we saw</b> <span class="preLine">{{.Evidence}}</span></p>
       <p><b>Fix</b> {{.Fix}}</p>
       <button type="button" class="copy" data-fix="{{.Fix}}">Copy fix</button>
     </article>{{end}}

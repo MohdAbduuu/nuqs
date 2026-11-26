@@ -29,11 +29,17 @@ func (Check) Info() check.Info {
 	return check.Info{
 		ID:               "ftp-anonymous-login",
 		Title:            "FTP server allows anonymous login",
+		Description:      "Anyone on the network can log in to this FTP server as \"anonymous\" with no password.\nInternal files on port 21 can be read by anyone, and open upload folders can be used to drop files or fill the disk.",
 		Severity:         model.Medium,
 		Fix:              "Disable anonymous FTP unless you really mean to share files publicly. For vsftpd set anonymous_enable=NO.",
 		RemediationTitle: "Disable anonymous FTP",
 		Ports:            []int{21},
 		Services:         []string{"ftp"},
+		References: []check.Reference{
+			{Title: "CWE-287: Improper Authentication", URL: "https://cwe.mitre.org/data/definitions/287.html"},
+			{Title: "RFC 1635: How to Use Anonymous FTP", URL: "https://datatracker.ietf.org/doc/html/rfc1635"},
+			{Title: "vsftpd.conf Manual", URL: "https://security.appspot.com/vsftpd/vsftpd_conf.html"},
+		},
 	}
 }
 

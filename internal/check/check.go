@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -16,13 +17,22 @@ import (
 	"github.com/nuqs-org/nuqs/internal/model"
 )
 
+// Reference is an external link explaining a check or vulnerability, such as
+// an RFC, CWE entry, vendor guide or CVE record.
+type Reference struct {
+	Title string `json:"title"` // short readable label shown in the UI
+	URL   string `json:"url"`   // full https:// or http:// URL
+}
+
 // Info describes a check. The engine uses it to decide where the check runs
 // and to fill in the finding, so Run only has to return evidence.
 type Info struct {
-	ID       string         // short and unique, like "telnet-open"
-	Title    string         // one line shown to users
-	Severity model.Severity // how bad it is when found
-	Fix      string         // what the user should do about it
+	ID          string         // short and unique, like "telnet-open"
+	Title       string         // one line shown to users
+	Description string         // plain-words explanation of why this matters; first line is shown on library cards
+	Severity    model.Severity // how bad it is when found
+	Fix         string         // what the user should do about it
+	References  []Reference    // sources, standards and CVE links
 
 	// Share a remediation ID only when one action addresses both checks.
 	RemediationID    string
@@ -108,6 +118,9 @@ func Validate(checks []Check) error {
 		if strings.TrimSpace(in.Title) == "" {
 			errs = append(errs, fmt.Errorf("check %q: missing title", in.ID))
 		}
+		if strings.TrimSpace(in.Description) == "" {
+			errs = append(errs, fmt.Errorf("check %q: missing description", in.ID))
+		}
 		if strings.TrimSpace(in.Fix) == "" {
 			errs = append(errs, fmt.Errorf("check %q: missing fix", in.ID))
 		}
@@ -122,6 +135,15 @@ func Validate(checks []Check) error {
 		for _, s := range in.Services {
 			if s != strings.ToLower(s) || s == "" {
 				errs = append(errs, fmt.Errorf("check %q: service names must be lowercase", in.ID))
+			}
+		}
+		for _, ref := range in.References {
+			if strings.TrimSpace(ref.Title) == "" {
+				errs = append(errs, fmt.Errorf("check %q: reference missing title", in.ID))
+			}
+			u, err := url.Parse(strings.TrimSpace(ref.URL))
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				errs = append(errs, fmt.Errorf("check %q: invalid reference URL %q", in.ID, ref.URL))
 			}
 		}
 	}
