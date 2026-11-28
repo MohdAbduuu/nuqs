@@ -49,7 +49,7 @@ func (Check) Info() check.Info {
 // Run sends "stats" over TCP and reports a finding if Memcached replies with stats.
 func (Check) Run(ctx context.Context, t check.Target) (*check.Result, error) {
 	if t.Service.Tunnel == "ssl" {
-		return nil, fmt.Errorf("Memcached over TLS isn't supported yet")
+		return nil, errors.New("memcached over TLS isn't supported yet")
 	}
 
 	var d net.Dialer
@@ -65,7 +65,7 @@ func (Check) Run(ctx context.Context, t check.Target) (*check.Result, error) {
 		_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 	}
 
-	// Close the connection if ctx is cancelled, unblocking any pending I/O.
+	// Close the connection if ctx is canceled, unblocking any pending I/O.
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 

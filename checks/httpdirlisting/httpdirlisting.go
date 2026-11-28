@@ -140,7 +140,7 @@ func parseListing(body string) (string, []string, bool) {
 	entries := extractEntries(body)
 	// Require both title and h1 to match (handles empty directories cleanly),
 	// or at least one file link when only one of title/h1 is present.
-	if !(titleMatch && headingMatch) && len(entries) == 0 {
+	if (!titleMatch || !headingMatch) && len(entries) == 0 {
 		return "", nil, false
 	}
 
