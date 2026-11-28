@@ -23,6 +23,10 @@ import (
 	"modernc.org/sqlite" // the SQLite driver, pure Go so Nuqs still builds without a C compiler
 )
 
+// DefaultKeep is how many saved scans are kept by default before the oldest
+// ones are removed. Zero means keep all scans.
+const DefaultKeep = 200
+
 // ErrNotFound is returned for a run ID that isn't saved.
 var ErrNotFound = errors.New("no saved scan with that ID")
 
@@ -223,6 +227,40 @@ func (s *Store) Delete(id int64) error {
 		return fmt.Errorf("delete scan %d: %w", id, err)
 	}
 	return nil
+}
+
+// Prune removes the oldest non-running scans so at most keep of them remain,
+// along with their hosts, services, findings and check errors (via ON DELETE
+// CASCADE). Running scans are never removed. When keep is 0 or less, nothing
+// is removed. It returns how many scans were deleted.
+func (s *Store) Prune(keep int) (int, error) {
+	if keep <= 0 {
+		return 0, nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("prune scans: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.Exec(`DELETE FROM runs
+		WHERE status != ?
+		  AND id NOT IN (
+			SELECT id FROM runs
+			WHERE status != ?
+			ORDER BY id DESC
+			LIMIT ?
+		  )`, Running, Running, keep)
+	if err != nil {
+		return 0, fmt.Errorf("prune scans: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("prune scans: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("prune scans: %w", err)
+	}
+	return int(n), nil
 }
 
 // execer is what both *sql.DB and *sql.Tx can do.

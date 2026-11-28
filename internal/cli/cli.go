@@ -141,6 +141,7 @@ func (a *App) scan(ctx context.Context, args []string) int {
 	force := fs.Bool("force", false, fmt.Sprintf("allow scanning more than %d addresses", target.DefaultLimit))
 	nmapPath := fs.String("nmap", "", "path to the nmap binary (default: nmap from PATH)")
 	noSave := fs.Bool("no-save", false, "don't save this scan to the history")
+	keepFlag := fs.Int("keep", store.DefaultKeep, "how many saved scans to keep, oldest are deleted first, 0 keeps all (env: NUQS_KEEP_SCANS)")
 	failOn := fs.String("fail-on", "", "exit with code 3 if there's a finding at or above this severity: critical, high, medium, low or info")
 	fs.Usage = func() {
 		fmt.Fprintln(a.Stderr, "Usage: nuqs scan [flags] <target>...")
@@ -166,6 +167,11 @@ func (a *App) scan(ctx context.Context, args []string) int {
 
 	if *workers < 1 || *timeout <= 0 {
 		fmt.Fprintln(a.Stderr, "--workers must be at least 1 and --timeout must be positive")
+		return ExitUsage
+	}
+	keep, err := resolveKeep(fs, *keepFlag)
+	if err != nil {
+		fmt.Fprintln(a.Stderr, "error:", err)
 		return ExitUsage
 	}
 	var failAt model.Severity
@@ -242,7 +248,7 @@ func (a *App) scan(ctx context.Context, args []string) int {
 		return ExitError
 	}
 	if !*noSave {
-		a.saveScan(ctx, targets, rep, err, scanSettings{Target: strings.Join(specs, ", "), Ports: portSpec, SkipPing: *skipPing, Workers: *workers, Timeout: timeout.String()})
+		a.saveScan(ctx, targets, rep, err, scanSettings{Target: strings.Join(specs, ", "), Ports: portSpec, SkipPing: *skipPing, Workers: *workers, Timeout: timeout.String()}, keep)
 	}
 	if ctx.Err() != nil {
 		return ExitError
@@ -293,7 +299,7 @@ type scanSettings struct {
 // saveScan saves the scan to the history and says what changed since the
 // last scan of the same targets. A scan that ran is worth more than its
 // history entry, so if saving fails we only say so.
-func (a *App) saveScan(ctx context.Context, targets []string, rep *engine.Report, scanErr error, settings scanSettings) {
+func (a *App) saveScan(ctx context.Context, targets []string, rep *engine.Report, scanErr error, settings scanSettings, keep int) {
 	st, err := store.Open(a.dataDir())
 	if err != nil {
 		fmt.Fprintln(a.Stderr, "warning: couldn't save this scan:", err)
@@ -316,6 +322,11 @@ func (a *App) saveScan(ctx context.Context, targets []string, rep *engine.Report
 	if err := st.Save(&r); err != nil {
 		fmt.Fprintln(a.Stderr, "warning: couldn't save this scan:", err)
 		return
+	}
+	if keep > 0 {
+		if _, err := st.Prune(keep); err != nil {
+			fmt.Fprintln(a.Stderr, "warning: couldn't remove old scans:", err)
+		}
 	}
 	fmt.Fprintf(a.Stderr, "Saved as scan %d. See it again with: nuqs show %d\n", r.ID, r.ID)
 	if r.Status == store.Completed && r.Error == "" {
@@ -340,6 +351,32 @@ func (a *App) dataDir() string {
 		return a.DataDir
 	}
 	return store.DefaultDir()
+}
+
+// resolveKeep returns how many saved scans to keep from --keep (if explicitly
+// passed), otherwise NUQS_KEEP_SCANS, otherwise store.DefaultKeep.
+func resolveKeep(fs *flag.FlagSet, flagVal int) (int, error) {
+	explicit := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "keep" {
+			explicit = true
+		}
+	})
+	if explicit {
+		if flagVal < 0 {
+			return 0, errors.New("--keep must be 0 or greater (0 keeps all)")
+		}
+		return flagVal, nil
+	}
+	raw := strings.TrimSpace(os.Getenv("NUQS_KEEP_SCANS"))
+	if raw == "" {
+		return store.DefaultKeep, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("NUQS_KEEP_SCANS=%q must be 0 or greater (0 keeps all)", raw)
+	}
+	return n, nil
 }
 
 // history lists the saved scans, newest first.
@@ -701,6 +738,7 @@ func (a *App) serve(ctx context.Context, args []string) int {
 	tlsCert := fs.String("tls-cert", os.Getenv("NUQS_TLS_CERT"), "path to PEM TLS certificate for HTTPS")
 	tlsKey := fs.String("tls-key", os.Getenv("NUQS_TLS_KEY"), "path to PEM TLS private key for HTTPS")
 	tlsSelfSigned := fs.Bool("tls-self-signed", false, "generate and reuse a local self-signed HTTPS certificate in the data folder")
+	keepFlag := fs.Int("keep", store.DefaultKeep, "how many saved scans to keep, oldest are deleted first, 0 keeps all (env: NUQS_KEEP_SCANS)")
 	fs.Usage = func() {
 		fmt.Fprintln(a.Stderr, "Usage: nuqs serve [flags]")
 		fs.PrintDefaults()
@@ -715,6 +753,11 @@ func (a *App) serve(ctx context.Context, args []string) int {
 	if fs.NArg() > 0 {
 		fmt.Fprintf(a.Stderr, "unexpected argument %q\n", fs.Arg(0))
 		fs.Usage()
+		return ExitUsage
+	}
+	keep, err := resolveKeep(fs, *keepFlag)
+	if err != nil {
+		fmt.Fprintln(a.Stderr, "error:", err)
 		return ExitUsage
 	}
 
@@ -795,7 +838,7 @@ func (a *App) serve(ctx context.Context, args []string) int {
 		MaxWorkers:   128,
 		StartedAt:    time.Now(),
 	}
-	scans := &tools.Scans{Service: svc, Store: st}
+	scans := &tools.Scans{Service: svc, Store: st, MaxSaved: keep}
 	if err := scans.Load(); err != nil {
 		fmt.Fprintln(a.Stderr, "error: loading saved scans:", err)
 		return ExitError

@@ -106,6 +106,9 @@ type Scans struct {
 	Store *store.Store
 	// Keep is how many scans to remember. 0 means 50.
 	Keep int
+	// MaxSaved is how many finished scans to keep in Store, deleting the oldest
+	// ones after a new scan finishes. 0 means keep all saved scans.
+	MaxSaved int
 
 	mu     sync.Mutex
 	list   []*entry // newest first
@@ -263,6 +266,10 @@ func (m *Scans) run(ctx context.Context, e *entry, valid ValidatedScan) {
 	}
 	if saveErr := m.save(done); saveErr != nil {
 		done.Error = strings.TrimSpace(done.Error + " This scan couldn't be saved (" + saveErr.Error() + "), so it'll be gone after a restart.")
+	} else if m.Store != nil && m.MaxSaved > 0 {
+		if pruned, err := m.Store.Prune(m.MaxSaved); err == nil && pruned > 0 {
+			_ = m.sync()
+		}
 	}
 	m.update(e, func(s *Scan) { *s = done })
 }

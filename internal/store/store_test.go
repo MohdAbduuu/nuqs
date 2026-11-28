@@ -360,6 +360,12 @@ func TestSaveAfterCloseFails(t *testing.T) {
 	if err := s.Delete(1); err == nil {
 		t.Error("delete on a closed store should fail")
 	}
+	if _, err := s.Prune(1); err == nil {
+		t.Error("prune on a closed store should fail")
+	}
+	if n, err := s.Prune(0); err != nil || n != 0 {
+		t.Errorf("prune 0 on a closed store should be a no-op: n=%d err=%v", n, err)
+	}
 }
 
 func TestDeleteRunAndCascade(t *testing.T) {
@@ -401,6 +407,77 @@ func TestDeleteRunAndCascade(t *testing.T) {
 	got2, err := s.Run(r2.ID)
 	if err != nil || got2.Report == nil || len(got2.Report.Hosts) != 2 || len(got2.Report.Findings) != 3 || len(got2.Report.Errors) != 1 {
 		t.Fatalf("unrelated run was affected: %+v, %v", got2, err)
+	}
+}
+
+func TestPruneOldestScansAndCascade(t *testing.T) {
+	s, _ := open(t)
+	runs := []Run{
+		{Name: "first", Kind: "cli", Targets: []string{"10.0.0.1"}, Status: Completed, Started: at, Finished: at.Add(time.Minute), Report: sampleReport()},
+		{Name: "second", Kind: "cli", Targets: []string{"10.0.0.2"}, Status: Stopped, Started: at.Add(time.Hour), Finished: at.Add(61 * time.Minute), Report: sampleReport()},
+		{Name: "third", Kind: "quick", Targets: []string{"10.0.0.3"}, Status: Failed, Error: "nmap failed", Started: at.Add(2 * time.Hour), Finished: at.Add(2 * time.Hour)},
+		{Name: "fourth", Kind: "cli", Targets: []string{"10.0.0.4"}, Status: Completed, Started: at.Add(3 * time.Hour), Finished: at.Add(181 * time.Minute), Report: sampleReport()},
+	}
+	for i := range runs {
+		if err := s.Save(&runs[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	running := Run{Name: "live", Kind: "quick", Targets: []string{"127.0.0.1"}, Started: at.Add(4 * time.Hour)}
+	if err := s.Create(&running); err != nil {
+		t.Fatal(err)
+	}
+
+	// 0, negative, and limits >= count do nothing.
+	for _, keep := range []int{0, -5, 4, 10} {
+		if n, err := s.Prune(keep); err != nil || n != 0 {
+			t.Fatalf("Prune(%d): got (%d, %v), want (0, nil)", keep, n, err)
+		}
+	}
+
+	// Keeping 2 removes the oldest 2 non-running runs and leaves the running scan intact.
+	n, err := s.Prune(2)
+	if err != nil || n != 2 {
+		t.Fatalf("Prune(2): got (%d, %v), want (2, nil)", n, err)
+	}
+	for _, pruned := range []int64{runs[0].ID, runs[1].ID} {
+		if _, err := s.Run(pruned); !errors.Is(err, ErrNotFound) {
+			t.Errorf("pruned run %d still loads: %v", pruned, err)
+		}
+		for _, table := range []string{"hosts", "services", "findings", "check_errors"} {
+			var count int
+			if err := s.db.QueryRow(`SELECT count(*) FROM `+table+` WHERE run_id = ?`, pruned).Scan(&count); err != nil {
+				t.Fatalf("count %s: %v", table, err)
+			}
+			if count != 0 {
+				t.Errorf("%s still has %d rows for pruned run %d", table, count, pruned)
+			}
+		}
+	}
+	for _, kept := range []int64{runs[2].ID, runs[3].ID, running.ID} {
+		if _, err := s.Run(kept); err != nil {
+			t.Errorf("kept run %d missing: %v", kept, err)
+		}
+	}
+	got4, err := s.Run(runs[3].ID)
+	if err != nil || got4.Report == nil || len(got4.Report.Hosts) != 2 || len(got4.Report.Findings) != 3 || len(got4.Report.Errors) != 1 {
+		t.Fatalf("kept run 4 corrupted: %+v, %v", got4, err)
+	}
+
+	// Once the running scan finishes, pruning to 2 removes run 3 and keeps run 4 and the newly finished run.
+	running.Status, running.Finished, running.Report = Completed, at.Add(4*time.Hour+time.Minute), sampleReport()
+	if err := s.Finish(running); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.Prune(2); err != nil || n != 1 {
+		t.Fatalf("Prune(2) after finish: got (%d, %v), want (1, nil)", n, err)
+	}
+	if _, err := s.Run(runs[2].ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("run 3 should be pruned: %v", err)
+	}
+	list, err := s.Runs(0)
+	if err != nil || len(list) != 2 || list[0].ID != running.ID || list[1].ID != runs[3].ID {
+		t.Fatalf("remaining runs = %+v, err=%v", list, err)
 	}
 }
 

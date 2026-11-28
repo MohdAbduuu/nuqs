@@ -46,6 +46,7 @@ Flags can go before or after the targets.
 | `--force` | Allow scanning more than 1024 addresses |
 | `--nmap /path/to/nmap` | Use a specific Nmap binary |
 | `--no-save` | Don't save this scan to the history |
+| `--keep 200` | How many saved scans to keep, oldest are deleted first (`0` keeps all) |
 
 ## Reading the output
 
@@ -89,6 +90,8 @@ The web server has the same comparison as JSON at `GET /api/scans/12/diff`, or `
 Findings are matched by check, host and port. A finding only counts as **fixed** when the newer scan looked again and didn't find it, and it says why: the port is no longer open, or the check no longer finds it. If the host didn't answer or the check couldn't finish, it's listed as **not checked** instead. Scans that stopped early aren't used for the automatic comparison, because everything they missed would look fixed.
 
 Scans are saved in one file, `nuqs.db`, in `~/Library/Application Support/nuqs` on macOS and `~/.config/nuqs` on Linux. Set `NUQS_DATA_DIR` to keep it somewhere else.
+
+By default, Nuqs keeps the last 200 saved scans and deletes the oldest ones after a new scan is saved. Change that with `--keep` on `nuqs scan` or `nuqs serve`, or set `NUQS_KEEP_SCANS` (`0` keeps all scans).
 
 ## Exit codes
 

@@ -427,3 +427,56 @@ func TestDeleteScan(t *testing.T) {
 		}
 	})
 }
+
+func TestMaxSavedPrunesOldestScans(t *testing.T) {
+	t.Run("prunes oldest beyond MaxSaved and keeps running scans", func(t *testing.T) {
+		st := openStore(t, t.TempDir())
+		m := &Scans{Service: newTestService(&fakeRunner{xml: []byte(telnetXML)}), Store: st, Keep: 10, MaxSaved: 2}
+		runOne := func(name string) Scan {
+			s, err := m.Start(NewScan{Name: name, Kind: "quick", Settings: ScanRequest{Target: "127.0.0.1"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return waitFor(t, m, s.ID, finished)
+		}
+
+		s1 := runOne("one")
+		s2 := runOne("two")
+		// A running scan from another process must survive pruning.
+		other := store.Run{Name: "elsewhere", Kind: "quick", Targets: []string{"127.0.0.1"}, Started: time.Now()}
+		if err := st.Create(&other); err != nil {
+			t.Fatal(err)
+		}
+		s3 := runOne("three")
+
+		if _, ok := m.Get(s1.ID); ok {
+			t.Error("oldest scan should have been pruned")
+		}
+		if _, err := st.Run(1); err != store.ErrNotFound {
+			t.Errorf("store still has pruned scan 1: %v", err)
+		}
+		if _, err := st.Run(other.ID); err != nil {
+			t.Errorf("running scan in another process was deleted: %v", err)
+		}
+		list := m.List()
+		if len(list) != 2 || list[0].ID != s3.ID || list[1].ID != s2.ID {
+			t.Fatalf("kept list = %+v, want [%s, %s]", list, s3.ID, s2.ID)
+		}
+	})
+
+	t.Run("zero keeps all", func(t *testing.T) {
+		st := openStore(t, t.TempDir())
+		m := &Scans{Service: newTestService(&fakeRunner{xml: []byte(telnetXML)}), Store: st, MaxSaved: 0}
+		for range 4 {
+			s, err := m.Start(NewScan{Kind: "quick", Settings: ScanRequest{Target: "127.0.0.1"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, m, s.ID, finished)
+		}
+		runs, err := st.Runs(0)
+		if err != nil || len(runs) != 4 {
+			t.Fatalf("MaxSaved=0 should keep all 4 runs, got %d (%v)", len(runs), err)
+		}
+	})
+}
