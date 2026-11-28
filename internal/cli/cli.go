@@ -76,6 +76,7 @@ Usage:
   nuqs history [-n 20]                 list saved scans, newest first
   nuqs show [--json] <id>              print a saved scan again
   nuqs show --finding <id> [scan-id]   timeline of one finding across scans
+  nuqs delete <id>                     delete a saved scan and its findings
   nuqs diff [--json] <old> [new]       what changed between two saved scans
   nuqs serve [flags]                   start the web UI and JSON API server
   nuqs user reset-password <username>  issue a one-time password reset code
@@ -99,6 +100,8 @@ func (a *App) Run(ctx context.Context, args []string) int {
 		return a.history(args[1:])
 	case "show":
 		return a.show(args[1:])
+	case "delete":
+		return a.delete(args[1:])
 	case "diff":
 		return a.diff(args[1:])
 	case "serve":
@@ -379,6 +382,46 @@ func (a *App) history(args []string) int {
 	if err := tw.Flush(); err != nil {
 		return ExitError
 	}
+	return ExitOK
+}
+
+// delete removes a saved scan along with its hosts, findings and check errors.
+func (a *App) delete(args []string) int {
+	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
+	fs.SetOutput(a.Stderr)
+	fs.Usage = func() {
+		fmt.Fprintln(a.Stderr, "Usage: nuqs delete <id>, the IDs are in nuqs history")
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return ExitOK
+		}
+		return ExitUsage
+	}
+	if fs.NArg() != 1 {
+		fs.Usage()
+		return ExitUsage
+	}
+	id, err := strconv.ParseInt(fs.Arg(0), 10, 64)
+	if err != nil || id < 1 {
+		fs.Usage()
+		return ExitUsage
+	}
+	st, err := store.Open(a.dataDir())
+	if err != nil {
+		fmt.Fprintln(a.Stderr, "error:", err)
+		return ExitError
+	}
+	defer func() { _ = st.Close() }()
+	if err := st.Delete(id); err != nil {
+		if errors.Is(err, store.ErrRunning) {
+			fmt.Fprintf(a.Stderr, "error: %v, stop it first\n", err)
+			return ExitError
+		}
+		fmt.Fprintln(a.Stderr, "error:", err)
+		return ExitError
+	}
+	fmt.Fprintf(a.Stdout, "Deleted scan %d.\n", id)
 	return ExitOK
 }
 

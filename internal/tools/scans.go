@@ -38,6 +38,9 @@ var ErrBusy = errors.New("a scan is already running, wait for it or stop it firs
 // ErrNotFound is returned for a scan ID we don't have.
 var ErrNotFound = errors.New("no scan with that ID")
 
+// ErrRunning is returned when trying to delete a scan that is still running.
+var ErrRunning = errors.New("can't delete a scan that is still running, stop it first")
+
 // NewScan is what the user filled in on the new scan page.
 type NewScan struct {
 	Name        string      `json:"name"`
@@ -310,6 +313,9 @@ func (m *Scans) sync() error {
 			continue
 		}
 		r, err := m.Store.Run(sum.ID)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -387,6 +393,7 @@ func (m *Scans) List() []Scan {
 
 // Get returns one scan.
 func (m *Scans) Get(id string) (Scan, bool) {
+	_ = m.sync()
 	s, _, ok := m.Watch(id)
 	return s, ok
 }
@@ -443,6 +450,66 @@ func (m *Scans) StopAll() {
 	defer m.mu.Unlock()
 	for _, e := range m.list {
 		e.cancel()
+	}
+}
+
+// Delete removes a finished, stopped or failed scan from the store and memory.
+// Running scans cannot be deleted until they stop or finish.
+func (m *Scans) Delete(id string) error {
+	m.mu.Lock()
+	for _, e := range m.list {
+		if e.scan.ID == id {
+			if e.scan.Status == ScanRunning {
+				m.mu.Unlock()
+				return ErrRunning
+			}
+			break
+		}
+	}
+	m.mu.Unlock()
+
+	if m.Store != nil {
+		n, err := strconv.ParseInt(id, 10, 64)
+		if err != nil || n < 1 {
+			return ErrNotFound
+		}
+		if err := m.Store.Delete(n); err != nil {
+			switch {
+			case errors.Is(err, store.ErrRunning):
+				return ErrRunning
+			case errors.Is(err, store.ErrNotFound):
+				m.drop(id)
+				return ErrNotFound
+			default:
+				return fmt.Errorf("delete scan %s: %w", id, err)
+			}
+		}
+		m.drop(id)
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, e := range m.list {
+		if e.scan.ID == id {
+			if e.scan.Status == ScanRunning {
+				return ErrRunning
+			}
+			m.list = append(m.list[:i], m.list[i+1:]...)
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (m *Scans) drop(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, e := range m.list {
+		if e.scan.ID == id && e.scan.Status != ScanRunning {
+			m.list = append(m.list[:i], m.list[i+1:]...)
+			return
+		}
 	}
 }
 

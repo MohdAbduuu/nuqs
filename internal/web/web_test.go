@@ -241,7 +241,8 @@ func TestCompletedScanPages(t *testing.T) {
 	mustContain(t, "hosts tab", body, "Finished with errors in", `aria-current="page">Hosts`, `href="/scans/`+s.ID+`/hosts/127.0.0.1"`,
 		"lab.local", `class="sevbar"`, "Scan details", "Full scan", "conic-gradient", "1 check couldn", "These aren't findings",
 		`href="/api/scans/`+s.ID+`/report" download`, `href="/api/scans/`+s.ID+`/report/html" download`,
-		`href="/scans/`+s.ID+`/report/print" target="_blank"`, `href="/api/scans/`+s.ID+`/report/csv" download`)
+		`href="/scans/`+s.ID+`/report/print" target="_blank"`, `href="/api/scans/`+s.ID+`/report/csv" download`,
+		`id="deleteScan"`, `data-id="`+s.ID+`"`, `id="deleteScanDialog"`, `id="cancelDeleteScan"`, `id="confirmDeleteScan"`, `id="deleteScanError"`, "Delete this scan?")
 	printCode, printBody := get(t, h, "/scans/"+s.ID+"/report/print")
 	if printCode != http.StatusOK {
 		t.Fatalf("print page: %d", printCode)
@@ -416,6 +417,9 @@ func TestRunningAndFailedScan(t *testing.T) {
 	_, body := get(t, h, "/scans/"+s.ID)
 	mustContain(t, "running scan", body, `data-watch="`+s.ID+`"`, `id="stopScan"`, `id="stopScanDialog"`, `id="cancelStopScan"`, `id="confirmStopScan"`, `class="spinner"`, "Scanning · 0%", "show up here when the scan finishes",
 		`role="progressbar"`, `aria-valuenow="0"`, `id="percentText">0%`, "Starting Nmap", "working out the time left")
+	if strings.Contains(body, `id="deleteScan"`) || strings.Contains(body, `id="deleteScanDialog"`) {
+		t.Error("running scan page must not offer delete")
+	}
 	_, body = get(t, h, "/scans")
 	mustContain(t, "list while running", body, `data-watch="`+s.ID+`"`, `id="statusLabel">Scanning · 0%`)
 	h.Scans.StopAll()
@@ -426,12 +430,15 @@ func TestRunningAndFailedScan(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	_, body = get(t, h, "/scans/"+s.ID)
-	mustContain(t, "stopped scan", body, "Stopped after", "Stopped before Nmap finished")
+	mustContain(t, "stopped scan", body, "Stopped after", "Stopped before Nmap finished", `id="deleteScan"`, `id="deleteScanDialog"`)
 
 	h2 := newTestWeb(t, &fakeRunner{err: errors.New(`exec: "nmap": executable file not found in $PATH`)})
-	failed := startAndWait(t, h2, "")
+	failed := startAndWait(t, h2, xss)
 	_, body = get(t, h2, "/scans/"+failed.ID)
-	mustContain(t, "failed scan", body, "The scan couldn", "Nmap isn&#39;t installed", "Failed")
+	mustContain(t, "failed scan", body, "The scan couldn", "Nmap isn&#39;t installed", "Failed", `id="deleteScan"`, `id="deleteScanDialog"`)
+	if strings.Contains(body, xss) {
+		t.Error("failed scan page and delete dialog must escape scan name")
+	}
 }
 
 func TestHelpers(t *testing.T) {

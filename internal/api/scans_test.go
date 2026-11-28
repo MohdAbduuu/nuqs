@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nuqs-org/nuqs/internal/nmap"
+	"github.com/nuqs-org/nuqs/internal/store"
 	"github.com/nuqs-org/nuqs/internal/tools"
 )
 
@@ -166,6 +167,58 @@ func TestStartRejects(t *testing.T) {
 	}
 	if s := waitDone(t, h, "1"); s.Status != tools.ScanStopped {
 		t.Errorf("status %s", s.Status)
+	}
+}
+
+func TestDeleteScanEndpoint(t *testing.T) {
+	runner := &slowRunner{release: make(chan struct{})}
+	h := newScansHandler(t, runner)
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	h.Scans.Store = st
+
+	// Cross-origin delete is forbidden.
+	r := httptest.NewRequest(http.MethodDelete, "http://127.0.0.1:9002/api/scans/1", nil)
+	r.Header.Set("Origin", "https://example.org")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("foreign origin delete: got %d, want 403", w.Code)
+	}
+
+	// Missing scan returns 404.
+	if w := do(h, http.MethodDelete, "/api/scans/99", ""); w.Code != http.StatusNotFound {
+		t.Fatalf("delete unknown: got %d, want 404", w.Code)
+	}
+
+	// Start a scan: deleting while running returns 409 Conflict.
+	if w := do(h, http.MethodPost, "/api/scans", `{"name":"To delete","kind":"full","settings":{"target":"127.0.0.1"}}`); w.Code != http.StatusCreated {
+		t.Fatalf("start: %d %s", w.Code, w.Body)
+	}
+	if w := do(h, http.MethodDelete, "/api/scans/1", ""); w.Code != http.StatusConflict {
+		t.Fatalf("delete running: got %d, want 409 (%s)", w.Code, w.Body)
+	}
+
+	// Finish scan, then delete returns 204 and scan disappears from API and store.
+	close(runner.release)
+	waitDone(t, h, "1")
+	if w := do(h, http.MethodDelete, "/api/scans/1", ""); w.Code != http.StatusNoContent {
+		t.Fatalf("delete finished: got %d, want 204 (%s)", w.Code, w.Body)
+	}
+	if w := do(h, http.MethodGet, "/api/scans/1", ""); w.Code != http.StatusNotFound {
+		t.Errorf("deleted scan GET: got %d, want 404", w.Code)
+	}
+	if w := do(h, http.MethodDelete, "/api/scans/1", ""); w.Code != http.StatusNotFound {
+		t.Errorf("delete twice: got %d, want 404", w.Code)
+	}
+
+	// Closed store returns 500.
+	st.Close()
+	if w := do(h, http.MethodDelete, "/api/scans/1", ""); w.Code != http.StatusInternalServerError {
+		t.Errorf("delete with closed store: got %d, want 500", w.Code)
 	}
 }
 

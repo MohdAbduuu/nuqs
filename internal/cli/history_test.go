@@ -202,3 +202,72 @@ func TestServeFailsWithoutItsStore(t *testing.T) {
 		t.Errorf("exit %d:\n%s", code, errOut)
 	}
 }
+
+func TestDeleteCommand(t *testing.T) {
+	app, out, errOut := newApp(t, &fakeRunner{})
+	ctx := context.Background()
+	for _, target := range []string{"10.0.0.1", "10.0.0.2"} {
+		if code := app.Run(ctx, []string{"scan", target}); code != ExitOK {
+			t.Fatalf("scan %s exit %d:\n%s", target, code, errOut)
+		}
+	}
+
+	// Save a running scan directly to verify CLI refuses to delete it.
+	st, err := store.Open(app.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	running := store.Run{Name: "still running", Kind: "quick", Targets: []string{"127.0.0.1"}, Started: time.Now()}
+	if err := st.Create(&running); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+
+	errOut.Reset()
+	if code := app.Run(ctx, []string{"delete", "3"}); code != ExitError || !strings.Contains(errOut.String(), "still running") {
+		t.Fatalf("delete running: exit %d\n%s", code, errOut)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if code := app.Run(ctx, []string{"delete", "1"}); code != ExitOK || !strings.Contains(out.String(), "Deleted scan 1.") {
+		t.Fatalf("delete 1: exit %d\nout: %s\nerr: %s", code, out, errOut)
+	}
+	if code := app.Run(ctx, []string{"show", "1"}); code != ExitError {
+		t.Errorf("deleted scan still shown: exit %d", code)
+	}
+
+	out.Reset()
+	if code := app.Run(ctx, []string{"history"}); code != ExitOK {
+		t.Fatalf("history exit %d", code)
+	}
+	if strings.Contains(out.String(), "10.0.0.1") || !strings.Contains(out.String(), "10.0.0.2") {
+		t.Errorf("history after delete:\n%s", out)
+	}
+
+	for _, c := range []struct {
+		args []string
+		code int
+	}{
+		{[]string{"delete"}, ExitUsage},
+		{[]string{"delete", "abc"}, ExitUsage},
+		{[]string{"delete", "0"}, ExitUsage},
+		{[]string{"delete", "-1"}, ExitUsage},
+		{[]string{"delete", "1", "2"}, ExitUsage},
+		{[]string{"delete", "--bogus"}, ExitUsage},
+		{[]string{"delete", "-h"}, ExitOK},
+		{[]string{"delete", "99"}, ExitError},
+	} {
+		if code := app.Run(ctx, c.args); code != c.code {
+			t.Errorf("%v: exit %d, want %d", c.args, code, c.code)
+		}
+	}
+
+	// Broken data folder returns ExitError.
+	file := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(file, nil, 0o600)
+	app.DataDir = filepath.Join(file, "data")
+	if code := app.Run(ctx, []string{"delete", "2"}); code != ExitError {
+		t.Errorf("broken data dir: exit %d, want ExitError", code)
+	}
+}

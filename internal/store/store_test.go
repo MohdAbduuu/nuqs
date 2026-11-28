@@ -357,6 +357,51 @@ func TestSaveAfterCloseFails(t *testing.T) {
 	if err := s.Finish(Run{ID: 1}); err == nil {
 		t.Error("finish on a closed store should fail")
 	}
+	if err := s.Delete(1); err == nil {
+		t.Error("delete on a closed store should fail")
+	}
+}
+
+func TestDeleteRunAndCascade(t *testing.T) {
+	s, _ := open(t)
+	r1 := Run{Name: "first", Kind: "cli", Targets: []string{"10.0.0.1", "10.0.0.2"}, Status: Completed, Started: at, Finished: at.Add(time.Minute), Report: sampleReport()}
+	r2 := Run{Name: "second", Kind: "cli", Targets: []string{"10.0.0.1", "10.0.0.2"}, Status: Completed, Started: at.Add(time.Hour), Finished: at.Add(61 * time.Minute), Report: sampleReport()}
+	running := Run{Name: "live", Kind: "quick", Targets: []string{"127.0.0.1"}, Started: at.Add(2 * time.Hour)}
+	if err := s.Save(&r1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(&r2); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Create(&running); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Delete(running.ID); !errors.Is(err, ErrRunning) {
+		t.Fatalf("delete running: got %v, want ErrRunning", err)
+	}
+	if err := s.Delete(999); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("delete missing: got %v, want ErrNotFound", err)
+	}
+	if err := s.Delete(r1.ID); err != nil {
+		t.Fatalf("delete completed: %v", err)
+	}
+	if _, err := s.Run(r1.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("deleted run still loads: %v", err)
+	}
+	for _, table := range []string{"hosts", "services", "findings", "check_errors"} {
+		var n int
+		if err := s.db.QueryRow(`SELECT count(*) FROM `+table+` WHERE run_id = ?`, r1.ID).Scan(&n); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		if n != 0 {
+			t.Errorf("%s still has %d rows for deleted run %d", table, n, r1.ID)
+		}
+	}
+	got2, err := s.Run(r2.ID)
+	if err != nil || got2.Report == nil || len(got2.Report.Hosts) != 2 || len(got2.Report.Findings) != 3 || len(got2.Report.Errors) != 1 {
+		t.Fatalf("unrelated run was affected: %+v, %v", got2, err)
+	}
 }
 
 // Regression: a report that can't be written must not leave a finished run

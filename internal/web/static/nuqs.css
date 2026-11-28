@@ -240,6 +240,7 @@ input[aria-invalid=true] {border-color:var(--critical)}
 
 dialog {border:0;border-radius:14px;padding:22px;background:var(--panel);color:var(--text);box-shadow:0 20px 60px #00000059;width:min(380px,90vw)}
 dialog::backdrop {background:#00000066}
+dialog .formError {margin-top:10px}
 .dialogActions {display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
 .accountMeta {display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
 .rolePill {font:600 11px/1.6 var(--mono);padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--sub);text-transform:lowercase}

@@ -1,4 +1,4 @@
-// The /api/scans endpoints: start a scan in the background, list scans, follow one live, stop it and compare it with an older one.
+// The /api/scans endpoints: start a scan in the background, list scans, follow one live, stop it, delete it and compare it with an older one.
 
 package api
 
@@ -45,6 +45,7 @@ func (h *Handler) registerScans(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/scans", h.listScans)
 	mux.HandleFunc("POST /api/scans", h.startScan)
 	mux.HandleFunc("GET /api/scans/{id}", h.getScan)
+	mux.HandleFunc("DELETE /api/scans/{id}", h.deleteScan)
 	mux.HandleFunc("GET /api/scans/{id}/report", h.downloadReport)
 	mux.HandleFunc("GET /api/scans/{id}/report/{format}", h.downloadReport)
 	mux.HandleFunc("GET /api/scans/{id}/events", h.scanEvents)
@@ -221,6 +222,30 @@ func (h *Handler) stopScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) deleteScan(w http.ResponseWriter, r *http.Request) {
+	if !h.sameOrigin(r) {
+		http.Error(w, "Open the scan page on this server.", http.StatusForbidden)
+		return
+	}
+	if h.Auth != nil {
+		if _, ok := auth.PrincipalFromContext(r.Context()); !ok {
+			http.Error(w, auth.ErrUnauthorized.Error(), http.StatusUnauthorized)
+			return
+		}
+	}
+	err := h.Scans.Delete(r.PathValue("id"))
+	switch {
+	case errors.Is(err, tools.ErrNotFound):
+		http.Error(w, "No scan with that ID.", http.StatusNotFound)
+	case errors.Is(err, tools.ErrRunning):
+		http.Error(w, "Can't delete a scan while it's running. Stop it first.", http.StatusConflict)
+	case err != nil:
+		http.Error(w, "Could not delete this scan.", http.StatusInternalServerError)
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 // scanEvents streams the scan's progress with Server-Sent Events, one

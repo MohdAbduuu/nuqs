@@ -67,6 +67,7 @@ Every scan is saved, from the CLI and from the web UI, so you can look at it aga
 ./nuqs history        # the last 20 scans, newest first
 ./nuqs history -n 0   # all of them
 ./nuqs show 12        # print scan 12 again, add --json for JSON
+./nuqs delete 12      # remove scan 12 along with its hosts, findings and errors
 ```
 
 ## What changed

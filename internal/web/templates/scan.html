@@ -1,5 +1,5 @@
 <!-- One scan: hosts and vulnerabilities tabs, with scan details and the severity ring on the side. -->
-{{define "actions"}}{{with .Data}}{{if eq .Status "running"}}<button type="button" id="stopScan" aria-keyshortcuts="Escape" title="Stop scan (Esc)" data-id="{{.ID}}">Stop</button>{{else if .Report}}<details class="exportMenu"><summary>Export</summary><div><a href="/api/scans/{{.ID}}/report" download>JSON</a><a href="/api/scans/{{.ID}}/report/html" download>HTML</a><a href="/scans/{{.ID}}/report/print" target="_blank" rel="noopener">PDF</a><a href="/api/scans/{{.ID}}/report/csv" download>CSV</a></div></details>{{end}}<a class="button primary" href="/scans/new">New scan</a>{{end}}{{end}}
+{{define "actions"}}{{with .Data}}{{if eq .Status "running"}}<button type="button" id="stopScan" aria-keyshortcuts="Escape" title="Stop scan (Esc)" data-id="{{.ID}}">Stop</button>{{else}}{{if .Report}}<details class="exportMenu"><summary>Export</summary><div><a href="/api/scans/{{.ID}}/report" download>JSON</a><a href="/api/scans/{{.ID}}/report/html" download>HTML</a><a href="/scans/{{.ID}}/report/print" target="_blank" rel="noopener">PDF</a><a href="/api/scans/{{.ID}}/report/csv" download>CSV</a></div></details>{{end}}<button type="button" id="deleteScan" class="dangerButton" data-id="{{.ID}}">Delete</button>{{end}}<a class="button primary" href="/scans/new">New scan</a>{{end}}{{end}}
 {{define "content"}}{{with .Data}}
 <section class="page" {{if eq .Status "running"}}data-watch="{{.ID}}"{{end}}>
   <div class="pageHead">
@@ -25,8 +25,19 @@
       <p class="progressNumbers"><span id="percentText">{{whole .Percent}}%</span> · <span id="remaining">{{if .Remaining}}{{.Remaining}}{{else}}working out the time left{{end}}</span> · <span id="elapsed" class="mono">{{duration .Elapsed.Seconds}}</span> so far</p>
     </div>
   </div>
-  {{else if eq .Status "failed"}}
+  {{else}}
+  <dialog id="deleteScanDialog" aria-labelledby="deleteScanTitle" aria-describedby="deleteScanDescription">
+    <h2 id="deleteScanTitle">Delete this scan?</h2>
+    <p id="deleteScanDescription">This removes "{{.Name}}" along with its hosts, findings and errors. You can't undo this.</p>
+    <p class="formError" id="deleteScanError" role="alert" hidden></p>
+    <div class="dialogActions">
+      <button type="button" id="cancelDeleteScan">Cancel</button>
+      <button type="button" class="danger" id="confirmDeleteScan">Delete scan</button>
+    </div>
+  </dialog>
+  {{if eq .Status "failed"}}
   <div class="card errorCard" role="alert"><h2>The scan couldn't run</h2><p>{{.Error}}</p></div>
+  {{end}}
   {{end}}
 
   <div class="resultsLayout">

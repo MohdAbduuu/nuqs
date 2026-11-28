@@ -395,6 +395,48 @@ if (stop) {
   };
 }
 
+const del = byId("deleteScan");
+if (del) {
+  const dialog = byId("deleteScanDialog");
+  const cancel = byId("cancelDeleteScan");
+  const confirm = byId("confirmDeleteScan");
+  const errBox = byId("deleteScanError");
+  del.onclick = () => {
+    if (errBox) { errBox.textContent = ""; errBox.hidden = true; }
+    confirm.disabled = false;
+    confirm.textContent = "Delete scan";
+    cancel.disabled = false;
+    dialog.showModal();
+  };
+  cancel.onclick = () => dialog.close();
+  dialog.addEventListener("cancel", event => {
+    if (confirm.disabled) event.preventDefault();
+  });
+  dialog.onclick = event => {
+    if (event.target === dialog && !confirm.disabled) dialog.close();
+  };
+  confirm.onclick = async () => {
+    if (errBox) { errBox.textContent = ""; errBox.hidden = true; }
+    confirm.disabled = true;
+    cancel.disabled = true;
+    confirm.textContent = "Deleting…";
+    try {
+      const response = await fetch("/api/scans/" + encodeURIComponent(del.dataset.id), {method: "DELETE"});
+      if (response.status === 401) { location.href = "/login"; return; }
+      if (response.status === 204 || response.status === 404) { location.href = "/scans"; return; }
+      throw new Error((await response.text()).trim() || "Could not delete this scan.");
+    } catch (err) {
+      if (errBox) {
+        errBox.textContent = err.message || "Could not delete this scan.";
+        errBox.hidden = false;
+      }
+      confirm.disabled = false;
+      cancel.disabled = false;
+      confirm.textContent = "Delete scan";
+    }
+  };
+}
+
 // Filters apply as soon as one changes, there's no Apply button.
 const findingFilters = document.querySelector(".findingFilters");
 if (findingFilters) {

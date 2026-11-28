@@ -76,6 +76,9 @@ func TestAPIRBACAndStartedBy(t *testing.T) {
 	if w := doAuthed(h, http.MethodPost, base+"/api/scans", base, "", scanBody); w.Code != http.StatusUnauthorized {
 		t.Fatalf("unauth start = %d, want 401", w.Code)
 	}
+	if w := doAuthed(h, http.MethodDelete, base+"/api/scans/1", base, "", ""); w.Code != http.StatusUnauthorized {
+		t.Fatalf("unauth delete = %d, want 401", w.Code)
+	}
 
 	// Regular user can read status and start scans, and scan records started_by="bob".
 	if w := doAuthed(h, http.MethodGet, base+"/api/status", "", userTok, ""); w.Code != http.StatusOK {
@@ -93,6 +96,9 @@ func TestAPIRBACAndStartedBy(t *testing.T) {
 		t.Errorf("StartedBy = %q, want bob", created.StartedBy)
 	}
 	waitDone(t, h, created.ID)
+	if w := doAuthed(h, http.MethodDelete, base+"/api/scans/"+created.ID, base, userTok, ""); w.Code != http.StatusNoContent {
+		t.Fatalf("user delete = %d %s", w.Code, w.Body.String())
+	}
 
 	// Spoofing started_by in JSON is rejected by DisallowUnknownFields.
 	if w := doAuthed(h, http.MethodPost, base+"/api/scans", base, userTok, `{"started_by":"alice","kind":"full","settings":{"target":"127.0.0.1"}}`); w.Code != http.StatusBadRequest {
@@ -185,4 +191,7 @@ func TestAPIHTTPSLANOrigin(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitDone(t, h, created.ID)
+	if w := doAuthed(h, http.MethodDelete, base+"/api/scans/"+created.ID, base, userTok, ""); w.Code != http.StatusNoContent {
+		t.Fatalf("user delete = %d %s", w.Code, w.Body.String())
+	}
 }

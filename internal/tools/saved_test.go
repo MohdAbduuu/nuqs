@@ -302,3 +302,128 @@ func TestFindingTimelines(t *testing.T) {
 		t.Errorf("closed store: %+v", closed)
 	}
 }
+
+func TestDeleteScan(t *testing.T) {
+	t.Run("with store", func(t *testing.T) {
+		st := openStore(t, t.TempDir())
+		m := &Scans{Service: newTestService(&fakeRunner{xml: []byte(telnetXML)}), Store: st, Keep: 1}
+		s1, err := m.Start(NewScan{Kind: "quick", Settings: ScanRequest{Target: "127.0.0.1"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, m, s1.ID, finished)
+		s2, err := m.Start(NewScan{Kind: "quick", Settings: ScanRequest{Target: "127.0.0.1"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, m, s2.ID, finished)
+
+		// Another server's running scan in SQLite cannot be deleted.
+		otherRunning := store.Run{Name: "elsewhere", Kind: "quick", Targets: []string{"127.0.0.1"}, Started: time.Now()}
+		if err := st.Create(&otherRunning); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.Delete(strconv.FormatInt(otherRunning.ID, 10)); err != ErrRunning {
+			t.Fatalf("delete store running scan: got %v, want ErrRunning", err)
+		}
+
+		// Our own running scan cannot be deleted until stopped.
+		release := make(chan struct{})
+		m.Service = newTestService(&blockingRunner{release: release, xml: []byte(telnetXML)})
+		s3, err := m.Start(NewScan{Kind: "quick", Settings: ScanRequest{Target: "127.0.0.1"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := m.Delete(s3.ID); err != ErrRunning {
+			t.Fatalf("delete running scan: got %v, want ErrRunning", err)
+		}
+
+		// Evicted older scan (s1) and in-memory finished scan (s2) both delete cleanly.
+		if err := m.Delete(s1.ID); err != nil {
+			t.Fatalf("delete older saved scan: %v", err)
+		}
+		if _, ok := m.Get(s1.ID); ok {
+			t.Error("deleted older scan still found")
+		}
+		if err := m.Delete(s2.ID); err != nil {
+			t.Fatalf("delete in-memory scan: %v", err)
+		}
+		if _, ok := m.Get(s2.ID); ok {
+			t.Error("deleted scan still found")
+		}
+		for _, id := range []string{"999", "abc", "0"} {
+			if err := m.Delete(id); err != ErrNotFound {
+				t.Errorf("delete %q: got %v, want ErrNotFound", id, err)
+			}
+		}
+
+		// Stopping s3 lets it be deleted.
+		if err := m.Stop(s3.ID); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, m, s3.ID, finished)
+		close(release)
+
+		// Deleting directly from the store (like "nuqs delete" from the CLI)
+		// is picked up by Get, List and Delete without waiting for a restart.
+		id3, _ := strconv.ParseInt(s3.ID, 10, 64)
+		if err := st.Delete(id3); err != nil {
+			t.Fatalf("external store delete: %v", err)
+		}
+		if _, ok := m.Get(s3.ID); ok {
+			t.Error("externally deleted scan still returned by Get")
+		}
+		if err := m.Delete(s3.ID); err != ErrNotFound {
+			t.Errorf("delete externally deleted scan: got %v, want ErrNotFound", err)
+		}
+		for _, s := range m.List() {
+			if s.ID == s3.ID {
+				t.Error("externally deleted scan still in List")
+			}
+		}
+
+		// Delete a normal stopped scan through Scans.Delete too.
+		release2 := make(chan struct{})
+		m.Service = newTestService(&blockingRunner{release: release2, xml: []byte(telnetXML)})
+		s4, err := m.Start(NewScan{Kind: "quick", Settings: ScanRequest{Target: "127.0.0.1"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := m.Stop(s4.ID); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, m, s4.ID, finished)
+		close(release2)
+		if err := m.Delete(s4.ID); err != nil {
+			t.Fatalf("delete stopped scan: %v", err)
+		}
+
+		st.Close()
+		if err := m.Delete(s4.ID); err == nil {
+			t.Error("delete on closed store should fail")
+		}
+	})
+
+	t.Run("in memory", func(t *testing.T) {
+		release := make(chan struct{})
+		m := &Scans{Service: newTestService(&blockingRunner{release: release, xml: []byte(telnetXML)})}
+		s, err := m.Start(NewScan{Kind: "quick", Settings: ScanRequest{Target: "127.0.0.1"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := m.Delete(s.ID); err != ErrRunning {
+			t.Fatalf("delete running in-memory scan: got %v, want ErrRunning", err)
+		}
+		close(release)
+		waitFor(t, m, s.ID, finished)
+		if err := m.Delete(s.ID); err != nil {
+			t.Fatalf("delete finished in-memory scan: %v", err)
+		}
+		if _, ok := m.Get(s.ID); ok {
+			t.Error("deleted in-memory scan still present")
+		}
+		if err := m.Delete(s.ID); err != ErrNotFound {
+			t.Errorf("delete twice: got %v, want ErrNotFound", err)
+		}
+	})
+}

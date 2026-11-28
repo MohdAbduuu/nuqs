@@ -55,7 +55,9 @@ The main screen. Three tabs:
 A short **since last scan** line at the top: "2 new, 3 fixed, 10 still open".
 
 Finished scans can be exported as JSON, a self-contained printable HTML report,
-PDF or spreadsheet-ready CSV.
+PDF or spreadsheet-ready CSV. Any finished, stopped or failed scan can be removed
+with the **Delete** button and its confirmation dialog (running scans must be
+stopped first).
 
 ### Finding detail (W2)
 

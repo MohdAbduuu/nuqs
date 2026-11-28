@@ -26,6 +26,9 @@ import (
 // ErrNotFound is returned for a run ID that isn't saved.
 var ErrNotFound = errors.New("no saved scan with that ID")
 
+// ErrRunning is returned when trying to delete a scan that is still running.
+var ErrRunning = errors.New("can't delete a scan that is still running")
+
 // Run statuses, the same words the web UI uses.
 const (
 	Running   = "running"
@@ -192,6 +195,34 @@ func (s *Store) Finish(r Run) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// Delete removes one saved scan along with its hosts, services, findings and
+// check errors (via ON DELETE CASCADE). Running scans cannot be deleted.
+func (s *Store) Delete(id int64) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("delete scan %d: %w", id, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var status string
+	err = tx.QueryRow(`SELECT status FROM runs WHERE id = ?`, id).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("delete scan %d: %w", id, err)
+	}
+	if status == Running {
+		return ErrRunning
+	}
+	if _, err := tx.Exec(`DELETE FROM runs WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("delete scan %d: %w", id, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("delete scan %d: %w", id, err)
+	}
+	return nil
 }
 
 // execer is what both *sql.DB and *sql.Tx can do.
