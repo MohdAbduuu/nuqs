@@ -59,3 +59,22 @@ func TestNormalizeDropsTelnetName(t *testing.T) {
 		t.Errorf("Nmap's Telnet name should be dropped:\n%s", &got)
 	}
 }
+
+func TestNormalizeMemcachedUptime(t *testing.T) {
+	want, err := os.ReadFile("expected-report.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
+	input := strings.Replace(string(want), "(uptime 0s)", "(uptime 1234s)", 1)
+	if input == string(want) {
+		t.Fatal("the replacement didn't change anything, update this test")
+	}
+	var got bytes.Buffer
+	if err := normalize(strings.NewReader(input), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got.Bytes(), want) {
+		t.Errorf("Memcached uptime should be normalized:\n%s", &got)
+	}
+}

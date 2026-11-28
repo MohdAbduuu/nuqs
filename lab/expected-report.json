@@ -26,6 +26,30 @@
       "fix": "Set requirepass in redis.conf, or bind Redis to localhost only."
     },
     {
+      "id": "elasticsearch-no-auth|127.0.0.1|19200/tcp",
+      "check_id": "elasticsearch-no-auth",
+      "title": "Elasticsearch cluster has no authentication",
+      "severity": "high",
+      "confidence": "confirmed",
+      "host": "127.0.0.1",
+      "port": 19200,
+      "protocol": "tcp",
+      "evidence": "GET http://127.0.0.1:19200/ and /_cat/indices answered without login: cluster \"nuqs-lab\" (Elasticsearch 8.17.4), 0 indices",
+      "fix": "Enable Elasticsearch security (xpack.security.enabled: true in elasticsearch.yml), configure authentication and TLS, or bind Elasticsearch to localhost only."
+    },
+    {
+      "id": "memcached-exposed|127.0.0.1|21211/tcp",
+      "check_id": "memcached-exposed",
+      "title": "Memcached server is exposed without authentication",
+      "severity": "high",
+      "confidence": "confirmed",
+      "host": "127.0.0.1",
+      "port": 21211,
+      "protocol": "tcp",
+      "evidence": "sent stats and got Memcached 1.6.38 (uptime 0s)",
+      "fix": "Bind Memcached to localhost (-l 127.0.0.1), restrict port 11211 with a firewall, and disable UDP (-U 0)."
+    },
+    {
       "id": "ftp-anonymous-login|127.0.0.1|12121/tcp",
       "check_id": "ftp-anonymous-login",
       "title": "FTP server allows anonymous login",
@@ -60,6 +84,18 @@
       "protocol": "tcp",
       "evidence": "(Nmap's name for the Telnet server changes between runs)",
       "fix": "Turn off Telnet and use SSH instead. Telnet sends passwords as plain text, so anyone on the network can read them."
+    },
+    {
+      "id": "http-directory-listing|127.0.0.1|18081/tcp",
+      "check_id": "http-directory-listing",
+      "title": "Web server allows directory listing",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "host": "127.0.0.1",
+      "port": 18081,
+      "protocol": "tcp",
+      "evidence": "GET http://127.0.0.1:18081/ returned directory listing \"Index of /\" with 3 entries: backup.sql, notes.txt, readme.txt",
+      "fix": "Disable directory indexing in the web server configuration (for example, autoindex off in nginx or Options -Indexes in Apache) and add an index page where needed."
     },
     {
       "id": "tls-deprecated-protocols|127.0.0.1|18443/tcp",
@@ -107,6 +143,18 @@
       "port": 18443,
       "protocol": "tcp",
       "evidence": "GET https://127.0.0.1:18443/ returned 200 without these headers: Content-Security-Policy, X-Content-Type-Options, X-Frame-Options, Strict-Transport-Security",
+      "fix": "Configure the web server to send the missing headers. Most servers can add them in one line of config."
+    },
+    {
+      "id": "http-security-headers|127.0.0.1|19200/tcp",
+      "check_id": "http-security-headers",
+      "title": "Web server is missing security headers",
+      "severity": "low",
+      "confidence": "confirmed",
+      "host": "127.0.0.1",
+      "port": 19200,
+      "protocol": "tcp",
+      "evidence": "GET http://127.0.0.1:19200/ returned 200 without these headers: Content-Security-Policy, X-Content-Type-Options, X-Frame-Options",
       "fix": "Configure the web server to send the missing headers. Most servers can add them in one line of config."
     }
   ],
@@ -159,12 +207,32 @@
           "version": "1.30.7"
         },
         {
+          "port": 18081,
+          "protocol": "tcp",
+          "name": "http",
+          "product": "nginx",
+          "version": "1.30.7"
+        },
+        {
           "port": 18443,
           "protocol": "tcp",
           "name": "http",
           "product": "nginx",
           "version": "1.30.7",
           "tunnel": "ssl"
+        },
+        {
+          "port": 19200,
+          "protocol": "tcp",
+          "name": "http",
+          "product": "Elasticsearch REST API",
+          "version": "8.17.4"
+        },
+        {
+          "port": 21211,
+          "protocol": "tcp",
+          "name": "memcached",
+          "product": "Memcached"
         }
       ]
     }

@@ -1,5 +1,5 @@
-// Command normalize validates and fixes the two timestamps in a Nuqs JSON report,
-// and drops Nmap's product guess for the Telnet server, which changes between runs.
+// Command normalize validates and fixes timestamps and run-dependent values in a
+// Nuqs JSON report (Telnet product guesses and Memcached uptime).
 package main
 
 import (
@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"time"
 
 	"github.com/nuqs-org/nuqs/internal/model"
@@ -17,6 +18,10 @@ import (
 // BusyBox telnetd ("BusyBox telnetd 1.14.0 or later") on some runs and just
 // "telnet" on others, and the evidence includes that name.
 const telnetEvidence = "(Nmap's name for the Telnet server changes between runs)"
+
+// memcachedUptime replaces the live uptime seconds in memcached-exposed evidence
+// while preserving the detected Memcached version.
+var memcachedUptime = regexp.MustCompile(`\(uptime \d+s\)`)
 
 func main() {
 	if err := normalize(os.Stdin, os.Stdout); err != nil {
@@ -74,8 +79,11 @@ func forgetTelnetName(report map[string]json.RawMessage) error {
 		return fmt.Errorf("findings: %w", err)
 	}
 	for i := range findings {
-		if findings[i].CheckID == "telnet-open" {
+		switch findings[i].CheckID {
+		case "telnet-open":
 			findings[i].Evidence = telnetEvidence
+		case "memcached-exposed":
+			findings[i].Evidence = memcachedUptime.ReplaceAllString(findings[i].Evidence, "(uptime 0s)")
 		}
 	}
 	var err error

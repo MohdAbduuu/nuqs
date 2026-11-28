@@ -6,8 +6,11 @@
 package checks
 
 import (
+	"github.com/nuqs-org/nuqs/checks/elasticsearchnoauth"
 	"github.com/nuqs-org/nuqs/checks/ftpanon"
+	"github.com/nuqs-org/nuqs/checks/httpdirlisting"
 	"github.com/nuqs-org/nuqs/checks/httpheaders"
+	"github.com/nuqs-org/nuqs/checks/memcachedexposed"
 	"github.com/nuqs-org/nuqs/checks/mongodbnoauth"
 	"github.com/nuqs-org/nuqs/checks/redisnoauth"
 	"github.com/nuqs-org/nuqs/checks/sshnoauth"
@@ -21,8 +24,11 @@ import (
 // All returns a fresh list of every built-in check.
 func All() []check.Check {
 	return []check.Check{
+		elasticsearchnoauth.Check{},
 		ftpanon.Check{},
+		httpdirlisting.Check{},
 		httpheaders.Check{},
+		memcachedexposed.Check{},
 		mongodbnoauth.Check{},
 		redisnoauth.Check{},
 		sshnoauth.Check{},

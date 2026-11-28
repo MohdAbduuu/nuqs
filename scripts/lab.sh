@@ -49,7 +49,7 @@ if not greeting.startswith(b"220 "):
     sys.exit(f"Expected FTP 220 greeting on 127.0.0.1:12121, received {greeting!r}")
 print("FTP greeting received on 127.0.0.1:12121 before discovery")
 PY
-"$workdir/nuqs" scan --json -Pn -p 12121,12222,12323,12717,16379,18080,18443 127.0.0.1 > "$workdir/report.json"
+"$workdir/nuqs" scan --json -Pn -p 12121,12222,12323,12717,16379,18080,18081,18443,19200,21211 127.0.0.1 > "$workdir/report.json"
 go run ./lab < "$workdir/report.json" > "$workdir/normalized.json"
 [[ -n "${LAB_OUT:-}" ]] && cp "$workdir/normalized.json" "$LAB_OUT"
 if $update; then

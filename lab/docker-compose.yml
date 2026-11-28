@@ -103,3 +103,49 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+  autoindex:
+    image: nginx:stable-alpine@sha256:3bc3836dc0be3b811f238210360bf8e7ca8a2d0effdae46160bf1f3578710051
+    entrypoint: ["nginx", "-g", "daemon off;"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    tmpfs:
+      - /tmp
+    volumes:
+      - ./nginx-autoindex.conf:/etc/nginx/nginx.conf:ro
+      - ./autoindex:/www:ro
+    ports: ["127.0.0.1:18081:8080"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 1s
+      timeout: 2s
+      retries: 20
+  elasticsearch:
+    # Exact version and cluster name so Nmap and check evidence stay deterministic.
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.4
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.ml.enabled=false
+      - ingest.geoip.downloader.enabled=false
+      - cluster.name=nuqs-lab
+      - node.name=lab-node
+      - ES_JAVA_OPTS=-Xms256m -Xmx256m
+    ports: ["127.0.0.1:19200:9200"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9200/_cat/indices >/dev/null"]
+      interval: 2s
+      timeout: 5s
+      retries: 45
+  memcached:
+    image: memcached:1.6.38-alpine
+    command: ["memcached", "-m", "16", "-U", "0"]
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    ports: ["127.0.0.1:21211:11211"]
+    healthcheck:
+      test: ["CMD-SHELL", "printf 'stats\\r\\nquit\\r\\n' | nc -w 2 127.0.0.1 11211 | grep -q '^END'"]
+      interval: 1s
+      timeout: 3s
+      retries: 20
